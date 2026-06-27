@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discopt-mkm"
+version = "0.1.0"
+description = "Microkinetic modeling plugin for the discopt modeling language"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # POUNCE (the default NLP backend, no cyipopt needed) ships in discopt
+    # >=0.4.1; that build is provided by the local source in [tool.uv.sources].
+    "discopt>=0.4",
+    "jax>=0.4",
+    "matplotlib>=3.10.9",
+    "networkx>=3.4.2",
+    "numpy>=1.24",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "scipy>=1.10",
+    "sympy>=1.14.0",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.28.0",
+]
+
+[project.scripts]
+discopt-mkm-mcp = "discopt_mkm.mcp_server:main"
+discopt-mkm-install-skill = "discopt_mkm.install:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    # for building/executing the example notebooks
+    "nbformat>=5",
+    "nbclient>=0.10",
+    "ipykernel>=6",
+]
+
+# discopt is not published; use the local source checkout (editable so changes
+# there are picked up immediately). Point this at your own clone.
+[tool.uv.sources]
+discopt = { path = "/Users/jkitchin/projects/discopt", editable = true }
+
+[tool.setuptools.packages.find]
+include = ["discopt_mkm*"]
+
+[tool.setuptools.package-data]
+discopt_mkm = ["skill/SKILL.md"]
