@@ -4,8 +4,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import discopt_mkm as mk
-from discopt_mkm.examples import co_oxidation, water_gas_shift
+import discopt.mkm as mk
+from discopt.mkm.examples import co_oxidation, water_gas_shift
 
 
 def test_energy_diagram_returns_axes():

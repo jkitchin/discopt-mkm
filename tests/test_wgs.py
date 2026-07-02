@@ -7,10 +7,10 @@ DRC must be propagated analytically (finite differences cannot compute it).
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm import numeric
-from discopt_mkm.analysis import degree_of_rate_control
-from discopt_mkm.examples import water_gas_shift
+import discopt.mkm as mk
+from discopt.mkm import numeric
+from discopt.mkm.analysis import degree_of_rate_control
+from discopt.mkm.examples import water_gas_shift
 
 
 @pytest.fixture(scope="module")
@@ -43,8 +43,8 @@ def test_drc_sums_to_one_with_two_controlling_steps(wgs_solution):
 def test_explicit_rate_thermodynamic_consistency(wgs_solution):
     m, sol = wgs_solution
     # explicit-rate steps: k_f / k_r == K_eq by construction (kr = kf / Keq)
-    from discopt_mkm.analysis.sensitivity import evaluate_expression
-    from discopt_mkm.kinetics import k_forward, k_reverse
+    from discopt.mkm.analysis.sensitivity import evaluate_expression
+    from discopt.mkm.kinetics import k_forward, k_reverse
 
     for rxn in m.reactions:
         kf = evaluate_expression(k_forward(rxn, sol.T_param, m.R), sol.result, sol.dm_model)

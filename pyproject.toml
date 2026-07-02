@@ -9,9 +9,8 @@ description = "Microkinetic modeling plugin for the discopt modeling language"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    # POUNCE (the default NLP backend, no cyipopt needed) ships in discopt
-    # >=0.4.1; that build is provided by the local source in [tool.uv.sources].
-    "discopt>=0.4",
+    # POUNCE (the default NLP backend, no cyipopt needed) ships in discopt >=0.5.
+    "discopt>=0.5",
     "jax>=0.4",
     "matplotlib>=3.10.9",
     "networkx>=3.4.2",
@@ -28,8 +27,8 @@ mcp = [
 ]
 
 [project.scripts]
-discopt-mkm-mcp = "discopt_mkm.mcp_server:main"
-discopt-mkm-install-skill = "discopt_mkm.install:main"
+discopt-mkm-mcp = "discopt.mkm.mcp_server:main"
+discopt-mkm-install-skill = "discopt.mkm.install:main"
 
 [dependency-groups]
 dev = [
@@ -40,13 +39,19 @@ dev = [
     "ipykernel>=6",
 ]
 
-# discopt is not published; use the local source checkout (editable so changes
-# there are picked up immediately). Point this at your own clone.
-[tool.uv.sources]
-discopt = { path = "/Users/jkitchin/projects/discopt", editable = true }
-
+# discopt.mkm is a PEP 420 namespace subpackage: it merges into the ``discopt``
+# namespace at import time (discopt's __init__ extends its __path__ via
+# pkgutil.extend_path). We deliberately package only ``discopt.mkm`` — never
+# ``discopt`` — so this distribution never shadows the base package.
 [tool.setuptools.packages.find]
-include = ["discopt_mkm*"]
+where = ["src"]
+include = ["discopt.mkm*"]
+namespaces = true
 
 [tool.setuptools.package-data]
-discopt_mkm = ["skill/SKILL.md"]
+"discopt.mkm" = ["skill/SKILL.md"]
+
+# Local discopt checkout for development. Remove/override to use the published
+# release from PyPI (discopt>=0.5). Point the path at your own clone.
+[tool.uv.sources]
+discopt = { path = "/Users/jkitchin/projects/discopt", editable = true }

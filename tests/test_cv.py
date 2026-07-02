@@ -8,7 +8,7 @@ scan rate (Randles-Sevcik).
 import numpy as np
 import pytest
 
-from discopt_mkm.electrochem import cyclic_voltammogram
+from discopt.mkm.electrochem import cyclic_voltammogram
 
 
 def _peaks(U, i):

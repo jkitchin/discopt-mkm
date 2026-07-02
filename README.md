@@ -47,7 +47,7 @@ J/mol and J/(mol·K).
 ## Example
 
 ```python
-import discopt_mkm as mk
+import discopt.mkm as mk
 
 m   = mk.Model("co_ox", T=500)                 # R defaults to eV/K
 s   = m.site("Pt", density=1.0)
@@ -134,7 +134,7 @@ rates — finite differences over a re-solved steady state cannot compute the DR
 at all. Solve such systems in **log coordinates** with a numeric warm start:
 
 ```python
-from discopt_mkm import numeric
+from discopt.mkm import numeric
 theta0, _ = numeric.steady_state_numeric(m, reactor.pressures, T, theta0=seed)
 sol = mk.solve_steady_state(m, reactor, coordinates="log", theta0=theta0, log_box=8.0)
 X = mk.degree_of_rate_control(sol, species=H2)   # analytic sensitivity, sums to 1
@@ -142,7 +142,7 @@ X = mk.degree_of_rate_control(sol, species=H2)   # analytic sensitivity, sums to
 
 `coordinates="log"` solves for `z = ln(theta)` (so coverages stay positive and
 well scaled) inside a box centered on the warm start, with a regularizer that
-selects the physical root. `discopt_mkm.numeric` is a pure-NumPy/scipy rate
+selects the physical root. `discopt.mkm.numeric` is a pure-NumPy/scipy rate
 evaluator and steady-state root-find used for the warm start and as an
 independent check.
 
@@ -153,7 +153,7 @@ can be a **spec** — a dict/YAML with string reaction equations — and results
 back as **JSON**. See [`AGENTS.md`](AGENTS.md) for the full guide.
 
 ```python
-from discopt_mkm import agent
+from discopt.mkm import agent
 spec = {
   "name": "co_ox", "T": 500, "R": 8.617e-5,
   "sites": [{"name": "*", "density": 1.0}],
@@ -192,7 +192,7 @@ state for a PFR/batch) coupled to the kinetics and thermodynamics through an
 adiabatic (or heated) energy balance.
 
 ```python
-from discopt_mkm.energy import EnergyBalance
+from discopt.mkm.energy import EnergyBalance
 sol = mk.solve_steady_state(m, cstr, energy=EnergyBalance(T_in=500.0))   # adiabatic CSTR
 print(sol.temperature())
 pfr = mk.solve_pfr(m, feed, length=1.0, velocity=1.0, cat_density=0.02,
@@ -259,7 +259,7 @@ Executed Jupyter notebooks in `examples/`:
 
 Combinatoric generators (RMG and similar) produce mechanisms that are too large
 and full of irrelevant steps, because relevance is decided *after* enumeration by
-rate-rule thresholds. `discopt_mkm.select` decides relevance *during* selection,
+rate-rule thresholds. `discopt.mkm.select` decides relevance *during* selection,
 using exact sensitivities and a parsimony objective. Given an over-complete
 candidate mechanism and turnover data, three complementary methods recover the
 minimal mechanism (`mk.examples.overcomplete_co_oxidation` adds Eley-Rideal,
@@ -290,7 +290,7 @@ library, scored by AIC.
 
 ## Electrochemistry
 
-The `discopt_mkm.electrochem` subpackage adds electrocatalysis by treating the
+The `discopt.mkm.electrochem` subpackage adds electrocatalysis by treating the
 electrode potential `U` as a second global driving variable, the exact analog of
 temperature. Mark a step faradaic with `n_electrons` (and a transfer coefficient
 `beta`); its reaction free energy then shifts by `n·F·U` (computational hydrogen
@@ -299,7 +299,7 @@ Because the reverse rate is derived from `K_eq`, detailed balance `k_f/k_r = K_e
 holds at every potential. Default units are eV with `U` in volts and `F = 1`.
 
 ```python
-import discopt_mkm.electrochem as ec
+import discopt.mkm.electrochem as ec
 
 m, reactor = ec.orr_4e(descriptor=0.9)          # 4-electron ORR from one descriptor
 m.U = 0.7                                        # set the electrode potential and re-solve
@@ -368,7 +368,7 @@ Transient solves use discopt's orthogonal-collocation DAE builder
   temperature rise modest (lower catalyst loading / shorter reactor) or refine
   the mesh. `solve_pfr` warm-starts from a numeric inlet steady state, so the
   mechanism should not be so stiff that the inlet root-find itself stalls.
-- The analysis layer (`discopt_mkm/analysis/sensitivity.py`) calls
+- The analysis layer (`src/discopt/mkm/analysis/sensitivity.py`) calls
   underscore-prefixed discopt internals. Pin the discopt version.
 
 ## Apparent orders, apparent barriers, lumped rates
@@ -381,7 +381,7 @@ propagate through the coverages — they are the true lumped descriptors, not th
 elementary values):
 
 ```python
-from discopt_mkm.analysis import apparent_orders, apparent_activation_energy
+from discopt.mkm.analysis import apparent_orders, apparent_activation_energy
 sol = mk.solve_steady_state(m, mk.DifferentialReactor({CO: 1.0, O2: 0.5, CO2: 0.0}))
 apparent_orders(sol, CO2)              # {CO: -0.17, O2: +0.27}  (d ln r / d ln P_i)
 apparent_activation_energy(sol, CO2)   # 0.68 eV  (R T^2 d ln r / dT)
@@ -403,10 +403,10 @@ lumped rate and the apparent orders/barrier characterize it locally.
 Model, `Reaction`, and `SteadyStateSolution` objects render in Jupyter
 (`_repr_html_`/`_repr_latex_`) and export with `to_latex()` / `to_html()`
 (mechanism table, `align` block, mhchem-style equations). The stoichiometric
-structure is exposed in `discopt_mkm.analysis.stoichiometry`:
+structure is exposed in `discopt.mkm.analysis.stoichiometry`:
 
 ```python
-from discopt_mkm.analysis import stoichiometry as st
+from discopt.mkm.analysis import stoichiometry as st
 st.reaction_routes(m)          # Horiuti-Temkin routes -> the overall reaction
                                #   WGS: CO + H2O -> CO2 + H2;  CO-ox: 2CO + O2 -> 2CO2
 st.independent_reactions(m)    # a maximal linearly independent subset
@@ -470,16 +470,21 @@ Full, DOI-verified BibTeX entries are in [`references.bib`](references.bib).
 
 ## Install (uv)
 
-The project is managed with [uv](https://docs.astral.sh/uv/). `discopt` is not
-published to PyPI, so `pyproject.toml` points at a local editable checkout via
-`[tool.uv.sources]` — edit that path to your own clone of
-`github.com/jkitchin/discopt`, then:
+The project is managed with [uv](https://docs.astral.sh/uv/). `discopt-mkm` is a
+`discopt` namespace plugin: it installs under the `discopt` package (as
+`discopt.mkm`) and depends on `discopt>=0.5`, which is published to PyPI with
+prebuilt wheels — no Rust toolchain needed for a plain install:
 
 ```bash
-uv sync                  # create .venv, build discopt (Rust) + install everything
+uv sync                  # create .venv, install discopt (from PyPI) + everything
 uv sync --extra mcp      # ...also install the MCP server dependency
 uv run pytest            # run the test suite
 ```
+
+To develop against a local `discopt` checkout instead, `pyproject.toml` carries a
+`[tool.uv.sources]` override pointing at a local editable clone of
+`github.com/jkitchin/discopt` (building the Rust extension). Edit that path to
+your own clone, or delete the block to use the published PyPI release.
 
 `uv.lock` pins the full dependency set for reproducibility. Add packages with
 `uv add <pkg>` (or `uv add --dev <pkg>` for tooling).

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -449,7 +449,7 @@ wheels = [
 
 [[package]]
 name = "discopt"
-version = "0.4.1.dev0"
+version = "0.5.1.dev0"
 source = { editable = "../../../../projects/discopt" }
 dependencies = [
     { name = "jax", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -469,12 +469,10 @@ dependencies = [
 requires-dist = [
     { name = "cyipopt", marker = "extra == 'ipopt'", specifier = ">=1.4" },
     { name = "discopt", extras = ["doe"], marker = "extra == 'doe-gui'" },
-    { name = "discopt", extras = ["pounce", "ipopt", "highs", "cutest", "llm", "gnn", "nn", "ml", "doe", "doe-gui", "sympy"], marker = "extra == 'all'" },
+    { name = "discopt", extras = ["pounce", "ipopt", "cutest", "llm", "gnn", "nn", "ml", "doe", "doe-gui", "sympy", "pyomo"], marker = "extra == 'all'" },
     { name = "equinox", marker = "extra == 'gnn'", specifier = ">=0.13.8" },
     { name = "equinox", marker = "extra == 'learned'", specifier = ">=0.13.8" },
     { name = "gamsapi", extras = ["core"], marker = "extra == 'gams'", specifier = ">=45" },
-    { name = "highspy", marker = "extra == 'dev'" },
-    { name = "highspy", marker = "extra == 'highs'" },
     { name = "jax", specifier = ">=0.4" },
     { name = "jaxlib", specifier = ">=0.4" },
     { name = "lightgbm", marker = "extra == 'lightgbm'", specifier = ">=4.0" },
@@ -487,10 +485,12 @@ requires-dist = [
     { name = "optax", marker = "extra == 'gnn'", specifier = ">=0.1" },
     { name = "optax", marker = "extra == 'learned'", specifier = ">=0.1" },
     { name = "pandas", marker = "extra == 'doe-gui'", specifier = ">=2.0" },
-    { name = "pounce-solver", specifier = ">=0.6" },
-    { name = "pounce-solver", marker = "extra == 'pounce'", specifier = ">=0.6" },
+    { name = "pounce-solver", specifier = ">=0.7" },
+    { name = "pounce-solver", marker = "extra == 'pounce'", specifier = ">=0.7" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pycutest", marker = "extra == 'cutest'", specifier = ">=1.8.0" },
+    { name = "pyomo", marker = "extra == 'dev'", specifier = ">=6.7" },
+    { name = "pyomo", marker = "extra == 'pyomo'", specifier = ">=6.7" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "pytest-timeout", marker = "extra == 'dev'" },
@@ -503,7 +503,7 @@ requires-dist = [
     { name = "sympy", marker = "extra == 'sympy'", specifier = ">=1.12" },
     { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=1.7" },
 ]
-provides-extras = ["pounce", "ipopt", "highs", "cutest", "gams", "llm", "nn", "ml", "xgboost", "lightgbm", "gnn", "learned", "sympy", "doe", "doe-gui", "dev", "all"]
+provides-extras = ["pounce", "ipopt", "cutest", "gams", "llm", "nn", "pyomo", "ml", "xgboost", "lightgbm", "gnn", "learned", "sympy", "doe", "doe-gui", "dev", "all"]
 
 [[package]]
 name = "discopt-mkm"
@@ -1796,7 +1796,7 @@ wheels = [
 
 [[package]]
 name = "pounce-solver"
-version = "0.6.0"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1806,13 +1806,13 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/f0/59099ff9e78fd49afa281f3f63376add763905069eb20e5dc70ce1780f8e/pounce_solver-0.6.0.tar.gz", hash = "sha256:21ce07bed24e27e62bb0f36b57e0493c936b01fedac3d7f247a8b0f158f6b74b", size = 1528349, upload-time = "2026-06-20T20:31:00.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/a0/9c0ef391d6c13f5ba51c3926d1b0ca1fa13956abd7b82c54c7a41e7e8347/pounce_solver-0.7.0.tar.gz", hash = "sha256:dc86e063032b894abb97526a7b10671a084a9214c1d502742389ef4bc402b009", size = 1552145, upload-time = "2026-07-01T21:43:06.37Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/97/3026ddf4391dea8b556dc7c601bca1ae79f5045b59d6dd2f4742d03875e8/pounce_solver-0.6.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f30346307eaf9afab63517ced118fdf3d3e0abb71745dc2f9f65884766f2a14d", size = 6085162, upload-time = "2026-06-20T20:30:50.409Z" },
-    { url = "https://files.pythonhosted.org/packages/36/17/bdbef28550af6dce7deb45400cbd75c859742b242177a79a6c987cae8136/pounce_solver-0.6.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:f2a6f45c31f83b804d008c9df2ed93a6e2566d7ad577a43a2099fc77a4d2ebb7", size = 5458327, upload-time = "2026-06-20T20:30:52.71Z" },
-    { url = "https://files.pythonhosted.org/packages/7d/dc/c20d0a74dd6c2dbc547667f454337d2a800fa8e3a3e55ccde701b6e9b9b2/pounce_solver-0.6.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9167a065c8c6ad5c6b964c2a23a5f55517ce93b87e7948492181bc2d4ec2d9ce", size = 13309202, upload-time = "2026-06-20T20:30:54.569Z" },
-    { url = "https://files.pythonhosted.org/packages/70/ff/1e6a3caf2cf317caac4426cfeeddac8640adfd91362a8b873c9ff1ad0479/pounce_solver-0.6.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ef93e5db36a1dba5e9667f424c3a906ba1035bd834fda877c50d461f25545a3b", size = 14936067, upload-time = "2026-06-20T20:30:56.804Z" },
-    { url = "https://files.pythonhosted.org/packages/ab/f8/ba161c97ffc22866a901f393800541caa1f5f5b914fc4569b240c357406a/pounce_solver-0.6.0-cp39-abi3-win_amd64.whl", hash = "sha256:b4604c74df349595f11c2c9ffa984c231cdec0e77965cee3375e887da9b5fd2a", size = 6343393, upload-time = "2026-06-20T20:30:59.187Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/d6/ab71eac4a3730236f834e86c8fb4584b0b026444a7af3fbc18e56c82de63/pounce_solver-0.7.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:ea44ee00aa58c09a5e8afb9a81aa83ef0caa8a7ffd9a55ec07fb880eb83d71da", size = 6487956, upload-time = "2026-07-01T21:42:55.714Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/83/5cb7c5f1946fb7b355ef919b3d378befc4972e4e9e50c8af126b18a19c59/pounce_solver-0.7.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:be5a91e631a1ef81fa06a76dcdb2a3094425cbac0185014ca4290eb8e4c85e11", size = 5622325, upload-time = "2026-07-01T21:42:57.969Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/69/f4f9619bc5163b56e7cf6d761889d118c5dc871595153be6a8bc763f17a6/pounce_solver-0.7.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f8b813ed7f3860b1ad585a718c48efda109d64ec935686950c7dbfe89d074b6c", size = 13532207, upload-time = "2026-07-01T21:42:59.943Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/57/3bc312a962aa4d825adaebd6e35cc7c6c65696a01ff4736f5814e1ff98cb/pounce_solver-0.7.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:02a1b462714d46de628c395fa43346e301a1f93c8f3e5921c002b347ab55bd1e", size = 15460159, upload-time = "2026-07-01T21:43:02.394Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/56/a5c51d67ff5764fea68b0448cd628b59e1533679b5c04f84174b3a25ea6b/pounce_solver-0.7.0-cp39-abi3-win_amd64.whl", hash = "sha256:f0ff48b0e6e7c6bfeded06cae4d2c84c34b51135615aef5991ed20f2b482fd06", size = 6578241, upload-time = "2026-07-01T21:43:04.611Z" },
 ]
 
 [[package]]

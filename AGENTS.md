@@ -6,7 +6,7 @@ degree of rate control, apparent orders/activation energy, stoichiometric
 structure, and an HTML report.
 
 Two ways to drive it:
-- **Python**: `from discopt_mkm import agent` — each function takes a spec dict, returns JSON-able data.
+- **Python**: `from discopt.mkm import agent` — each function takes a spec dict, returns JSON-able data.
 - **MCP**: run `discopt-mkm-mcp` (needs `uv sync --extra mcp`); tools mirror the `agent` functions.
 
 Do **not** hand-write the operator DSL (`m.step(CO + s >> COs)`); always pass a spec.
@@ -45,7 +45,7 @@ Per-reaction kinetics, choose one:
 - electrochemical step: `n_electrons: <int>` (electrons consumed forward; reduction positive) and
   `beta: <0..1>` (transfer coefficient). The free energy shifts by `n_electrons*F*U` and the forward
   barrier by `beta*n_electrons*F*U`; set model-level `U` (volts) and `F` (1.0 for eV/V, 96485 for J/mol).
-  Use `discopt_mkm.electrochem` for the current, Tafel slope, CHE diagram, and volcano.
+  Use `discopt.mkm.electrochem` for the current, Tafel slope, CHE diagram, and volcano.
 
 Optional: `interactions: [{a: "CO*", b: "O*", eps: 0.1}]` (lateral interactions),
 per-species `composition: {C: 1, O: 1}` (else inferred from the name),
@@ -86,7 +86,7 @@ Apparent `Ea` comes back in the same energy units as `R`.
 ## Example (Python)
 
 ```python
-from discopt_mkm import agent
+from discopt.mkm import agent
 result = agent.analyze(spec, target="CO2")
 # -> {structure, steady_state, tof, drc, apparent_orders, apparent_Ea}
 ```

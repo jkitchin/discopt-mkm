@@ -2,9 +2,9 @@
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import degree_of_rate_control
-from discopt_mkm.examples import co_oxidation
+import discopt.mkm as mk
+from discopt.mkm.analysis import degree_of_rate_control
+from discopt.mkm.examples import co_oxidation
 
 
 def test_drc_still_sums_to_one_with_interactions():

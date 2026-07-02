@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.energy import EnergyBalance
-from discopt_mkm.examples import adiabatic_cstr, co_oxidation
-from discopt_mkm.pfr import solve_pfr
+import discopt.mkm as mk
+from discopt.mkm.energy import EnergyBalance
+from discopt.mkm.examples import adiabatic_cstr, co_oxidation
+from discopt.mkm.pfr import solve_pfr
 
 
 def test_isothermal_pfr_atom_balance():

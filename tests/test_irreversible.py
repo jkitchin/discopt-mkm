@@ -2,9 +2,9 @@
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm import numeric
-from discopt_mkm.analysis import degree_of_rate_control
+import discopt.mkm as mk
+from discopt.mkm import numeric
+from discopt.mkm.analysis import degree_of_rate_control
 
 
 def _chain(explicit=True, irreversible=True, keq=None):

@@ -11,8 +11,8 @@ independent methods should all recover the minimal mechanism:
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.examples import co_oxidation, overcomplete_co_oxidation
+import discopt.mkm as mk
+from discopt.mkm.examples import co_oxidation, overcomplete_co_oxidation
 
 MINIMAL = {"CO adsorption", "O2 dissociation", "surface reaction"}
 CONDS = [{"CO": 1.0, "O2": 0.5}, {"CO": 2.0, "O2": 0.5}, {"CO": 0.5, "O2": 1.0}]

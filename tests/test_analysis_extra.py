@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import sympy as sp
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import apparent_activation_energy, apparent_orders
-from discopt_mkm.examples import co_oxidation
+import discopt.mkm as mk
+from discopt.mkm.analysis import apparent_activation_energy, apparent_orders
+from discopt.mkm.examples import co_oxidation
 
 
 # ---------------------------------------------------------------- apparent

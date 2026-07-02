@@ -10,7 +10,7 @@ one faradaic step.
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
+import discopt.mkm as mk
 
 R, T, F = 8.617e-5, 298.0, 1.0
 

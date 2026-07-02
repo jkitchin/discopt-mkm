@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm import agent
-from discopt_mkm.spec import from_spec, from_yaml, parse_equation, to_spec
+import discopt.mkm as mk
+from discopt.mkm import agent
+from discopt.mkm.spec import from_spec, from_yaml, parse_equation, to_spec
 
 SPEC = {
     "name": "co_ox", "T": 500, "R": 8.617e-5,
@@ -77,5 +77,5 @@ def test_spec_schema_and_mcp_tools():
     schema = agent.spec_schema()
     assert "reactions" in schema["properties"] and schema["title"] == "ModelSpec"
     # the MCP server registers the tools
-    from discopt_mkm import mcp_server
+    from discopt.mkm import mcp_server
     assert mcp_server.mcp is not None

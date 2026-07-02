@@ -1,6 +1,6 @@
 """The bundled skill and its installer."""
 
-from discopt_mkm import install
+from discopt.mkm import install
 
 
 def test_bundled_skill_has_frontmatter():

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
+import discopt.mkm as mk
 
 
 def _adsorption(thermo=None, H=0.0, S=0.0, Cp=0.0, T=400.0):
@@ -62,12 +62,12 @@ def test_shomate_solves_and_is_temperature_dependent():
         m.step(A + s >> As, A=1e3, Ea=0.0)
         sol = mk.solve_steady_state(m, mk.DifferentialReactor({A: 1.0}))
         # thermodynamic consistency holds with a thermo model in the loop
-        from discopt_mkm.analysis.sensitivity import evaluate_expression
-        from discopt_mkm.kinetics import k_forward, k_reverse
+        from discopt.mkm.analysis.sensitivity import evaluate_expression
+        from discopt.mkm.kinetics import k_forward, k_reverse
         r = m.reactions[0]
         kf = evaluate_expression(k_forward(r, sol.T_param, m.R), sol.result, sol.dm_model)
         kr = evaluate_expression(k_reverse(r, sol.T_param, m.R, m.Tref), sol.result, sol.dm_model)
-        from discopt_mkm.thermo import K_eq
+        from discopt.mkm.thermo import K_eq
         keq = evaluate_expression(K_eq(r, sol.T_param, m.R, m.Tref), sol.result, sol.dm_model)
         assert kf / kr == pytest.approx(keq, rel=1e-8)
         return sol.coverage(As)

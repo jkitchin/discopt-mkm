@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from discopt_mkm.analysis import stoichiometry as st
-from discopt_mkm.examples import co_oxidation, water_gas_shift
+from discopt.mkm.analysis import stoichiometry as st
+from discopt.mkm.examples import co_oxidation, water_gas_shift
 
 
 def test_wgs_route_is_overall_reaction():

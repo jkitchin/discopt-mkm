@@ -2,10 +2,10 @@
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm import numeric
-from discopt_mkm.analysis import degree_of_rate_control
-from discopt_mkm.examples import water_gas_shift, water_gas_shift_qea
+import discopt.mkm as mk
+from discopt.mkm import numeric
+from discopt.mkm.analysis import degree_of_rate_control
+from discopt.mkm.examples import water_gas_shift, water_gas_shift_qea
 
 
 def test_langmuir_hinshelwood_closed_form():

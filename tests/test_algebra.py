@@ -1,6 +1,6 @@
 """Operator-algebra and stoichiometry tests (no solver needed)."""
 
-import discopt_mkm as mk
+import discopt.mkm as mk
 
 
 def build():

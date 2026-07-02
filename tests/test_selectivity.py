@@ -11,11 +11,11 @@ degree zero in the rate constants, these controls must sum to zero.
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import degree_of_rate_control
-from discopt_mkm.analysis import stoichiometry as st
-from discopt_mkm.examples import selective_oxidation
-from discopt_mkm.numeric import (
+import discopt.mkm as mk
+from discopt.mkm.analysis import degree_of_rate_control
+from discopt.mkm.analysis import stoichiometry as st
+from discopt.mkm.examples import selective_oxidation
+from discopt.mkm.numeric import (
     net_rate,
     rate_constants,
     rates_of_progress,

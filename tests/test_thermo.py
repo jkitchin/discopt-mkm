@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.analysis.sensitivity import evaluate_expression
-from discopt_mkm.examples import co_oxidation
-from discopt_mkm.kinetics import k_forward, k_reverse
-from discopt_mkm.thermo import K_eq
+import discopt.mkm as mk
+from discopt.mkm.analysis.sensitivity import evaluate_expression
+from discopt.mkm.examples import co_oxidation
+from discopt.mkm.kinetics import k_forward, k_reverse
+from discopt.mkm.thermo import K_eq
 
 
 @pytest.mark.parametrize("T", [400.0, 500.0, 700.0])

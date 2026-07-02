@@ -6,9 +6,9 @@ These require the discopt package (and its pure-JAX IPM backend).
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import degree_of_rate_control, thermo_rate_control
-from discopt_mkm.examples import co_oxidation
+import discopt.mkm as mk
+from discopt.mkm.analysis import degree_of_rate_control, thermo_rate_control
+from discopt.mkm.examples import co_oxidation
 
 
 # ground truth from an independent scipy fsolve of the same mechanism

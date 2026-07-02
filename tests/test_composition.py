@@ -2,15 +2,15 @@
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import (
+import discopt.mkm as mk
+from discopt.mkm.analysis import (
     check_element_balance,
     conserved_quantities,
     element_conservation_laws,
     n_conservation_laws,
 )
-from discopt_mkm.examples import co_oxidation, water_gas_shift
-from discopt_mkm.formula import looks_like_formula, parse_formula
+from discopt.mkm.examples import co_oxidation, water_gas_shift
+from discopt.mkm.formula import looks_like_formula, parse_formula
 
 
 def test_formula_parsing():

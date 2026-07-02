@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm import numeric
-from discopt_mkm.examples import co_oxidation
+import discopt.mkm as mk
+from discopt.mkm import numeric
+from discopt.mkm.examples import co_oxidation
 
 
 def test_step_response_converges_to_steady_state():

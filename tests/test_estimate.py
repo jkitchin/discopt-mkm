@@ -2,8 +2,8 @@
 
 import pytest
 
-import discopt_mkm as mk
-from discopt_mkm.examples import co_oxidation
+import discopt.mkm as mk
+from discopt.mkm.examples import co_oxidation
 
 TS = [480.0, 500.0, 520.0]
 

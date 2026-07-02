@@ -10,9 +10,9 @@ potential, and the AD machinery gives the Tafel slope and transfer coefficient.
 import numpy as np
 import pytest
 
-import discopt_mkm as mk
-import discopt_mkm.electrochem as ec
-from discopt_mkm.numeric import (
+import discopt.mkm as mk
+import discopt.mkm.electrochem as ec
+from discopt.mkm.numeric import (
     net_rate,
     rate_constants,
     rates_of_progress,

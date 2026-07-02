@@ -7,8 +7,8 @@ import pytest
 
 jax.config.update("jax_enable_x64", True)
 
-import discopt_mkm as mk
-from discopt_mkm.analysis import stoichiometry as st
+import discopt.mkm as mk
+from discopt.mkm.analysis import stoichiometry as st
 
 
 def _pes():
