@@ -449,8 +449,8 @@ wheels = [
 
 [[package]]
 name = "discopt"
-version = "0.5.1.dev0"
-source = { editable = "../../../../projects/discopt" }
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax", version = "0.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "jax", version = "0.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -464,46 +464,20 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cyipopt", marker = "extra == 'ipopt'", specifier = ">=1.4" },
-    { name = "discopt", extras = ["doe"], marker = "extra == 'doe-gui'" },
-    { name = "discopt", extras = ["pounce", "ipopt", "cutest", "llm", "gnn", "nn", "ml", "doe", "doe-gui", "sympy", "pyomo"], marker = "extra == 'all'" },
-    { name = "equinox", marker = "extra == 'gnn'", specifier = ">=0.13.8" },
-    { name = "equinox", marker = "extra == 'learned'", specifier = ">=0.13.8" },
-    { name = "gamsapi", extras = ["core"], marker = "extra == 'gams'", specifier = ">=45" },
-    { name = "jax", specifier = ">=0.4" },
-    { name = "jaxlib", specifier = ">=0.4" },
-    { name = "lightgbm", marker = "extra == 'lightgbm'", specifier = ">=4.0" },
-    { name = "litellm", marker = "extra == 'llm'", specifier = ">=1.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "onnx", marker = "extra == 'nn'", specifier = ">=1.14" },
-    { name = "onnxruntime", marker = "extra == 'nn'", specifier = ">=1.16" },
-    { name = "openpyxl", marker = "extra == 'doe'", specifier = ">=3.1" },
-    { name = "optax", marker = "extra == 'gnn'", specifier = ">=0.1" },
-    { name = "optax", marker = "extra == 'learned'", specifier = ">=0.1" },
-    { name = "pandas", marker = "extra == 'doe-gui'", specifier = ">=2.0" },
-    { name = "pounce-solver", specifier = ">=0.7" },
-    { name = "pounce-solver", marker = "extra == 'pounce'", specifier = ">=0.7" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pycutest", marker = "extra == 'cutest'", specifier = ">=1.8.0" },
-    { name = "pyomo", marker = "extra == 'dev'", specifier = ">=6.7" },
-    { name = "pyomo", marker = "extra == 'pyomo'", specifier = ">=6.7" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "pytest-timeout", marker = "extra == 'dev'" },
-    { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "pyyaml", marker = "extra == 'gams'", specifier = ">=6" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.6" },
-    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.0" },
-    { name = "scipy", specifier = ">=1.10" },
-    { name = "streamlit", marker = "extra == 'doe-gui'", specifier = ">=1.30" },
-    { name = "sympy", marker = "extra == 'sympy'", specifier = ">=1.12" },
-    { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=1.7" },
+sdist = { url = "https://files.pythonhosted.org/packages/2a/32/2f82b0470625a2d62a02f4643b0d9f5acbd98f5611dff0baa9203222ceb5/discopt-0.5.0.tar.gz", hash = "sha256:c000ff693883e4882d782193d0a467e9f4ce312d96a0bf9812bbca0985adf1d8", size = 2578480, upload-time = "2026-07-02T13:23:17.941Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/1f/a071dad46cdb266204228a43805de4906c49005c6881f209d378f5e0fdc5/discopt-0.5.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:88c000af4887fa884d559bb5f68a7ab5363a6cceee421c9ceb9f7eed9b628d86", size = 4145294, upload-time = "2026-07-02T13:22:53.398Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/6f/c3355297ad1087e55831b6f1f880e095e17f5d5cc164be8adf83ec4a5c2e/discopt-0.5.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8aacf34f948b2f01d921632d5fad661e355c037cdfa63ff5763aba5635845844", size = 4244878, upload-time = "2026-07-02T13:22:56.062Z" },
+    { url = "https://files.pythonhosted.org/packages/55/03/98607ce6e9c6f375be34db652cebce904cd0e85ab31d757338bf51508652/discopt-0.5.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b877980d479c7eea17ec1f3902cedd94a1a50c881db68b3498ab47e7b5563621", size = 4145042, upload-time = "2026-07-02T13:22:58.586Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/5c/de679c101535f15ed43aa189000b896669b8df90c3228fdd8a9779c4c539/discopt-0.5.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:259f306dd9fec6f3424b60654f080c49133fd63b4b12f324d4817ef05e51e36e", size = 4244760, upload-time = "2026-07-02T13:23:00.923Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/02/9c22a21669ce07f52a4da21da0bc1b7af25cd29372b3e5a175053d527c44/discopt-0.5.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:a601e64c166be0e6742cf83184542795ebb03b38e650d500370df7e09eadba27", size = 4146335, upload-time = "2026-07-02T13:23:02.977Z" },
+    { url = "https://files.pythonhosted.org/packages/50/e8/1a560d301f24049226dec194f7931f4000b359cbba18f87d7979e5955864/discopt-0.5.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2d24ca057f6f8c79a96d88d40d177ec60ac5778b7371517513b70a6a44df763c", size = 4058789, upload-time = "2026-07-02T13:23:04.792Z" },
+    { url = "https://files.pythonhosted.org/packages/df/8a/16861f3dbf46b6458c7fb0872caa88ba731d1b7d4af5dd8a0a3e8d244d04/discopt-0.5.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:21cccc04f3eb5fe72b5db09a598b1ce301bdca81294c15332c563bc338f350f8", size = 4144248, upload-time = "2026-07-02T13:23:06.612Z" },
+    { url = "https://files.pythonhosted.org/packages/75/b6/62b120052edb4f2f5652a87fdacda135d54b02effe0689bbb12ee75d3320/discopt-0.5.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6777941afbbb74517e4c8e68cbefaa39c9de9f6b9ea70a20abe69141bcb3d0ac", size = 4245633, upload-time = "2026-07-02T13:23:08.749Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/37/439814aa10f4b965bbb378fddf7a39838e21751d145a186b553e364023ac/discopt-0.5.0-cp312-cp312-win_amd64.whl", hash = "sha256:f9488fabe632f4034cee5dfcc096cc24af7ce58a5fb531b85202df03d6ffe887", size = 4045246, upload-time = "2026-07-02T13:23:10.857Z" },
+    { url = "https://files.pythonhosted.org/packages/50/01/a6c3052f23a3b1e44cae33bbc9fed81d24e63d8f465c02e54fbb155b02f2/discopt-0.5.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:508eb1fe8200e6825fb453df200b95a6072f64bf41c3019f6ce43f88dd9a338b", size = 4144032, upload-time = "2026-07-02T13:23:13.816Z" },
+    { url = "https://files.pythonhosted.org/packages/47/b3/250ac48e260894dfc5edb878ceb8c00232f557fd61c8f803b9e0529d4e47/discopt-0.5.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:50d1d828d49bf9a48fabf8c8ecb56ba1cb4b191e0d02cf281a2864af1c5b1ed1", size = 4244447, upload-time = "2026-07-02T13:23:16Z" },
 ]
-provides-extras = ["pounce", "ipopt", "cutest", "gams", "llm", "nn", "pyomo", "ml", "xgboost", "lightgbm", "gnn", "learned", "sympy", "doe", "doe-gui", "dev", "all"]
 
 [[package]]
 name = "discopt-mkm"
@@ -543,7 +517,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "discopt", editable = "../../../../projects/discopt" },
+    { name = "discopt", specifier = ">=0.5" },
     { name = "jax", specifier = ">=0.4" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0" },

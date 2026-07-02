@@ -481,10 +481,11 @@ uv sync --extra mcp      # ...also install the MCP server dependency
 uv run pytest            # run the test suite
 ```
 
-To develop against a local `discopt` checkout instead, `pyproject.toml` carries a
-`[tool.uv.sources]` override pointing at a local editable clone of
-`github.com/jkitchin/discopt` (building the Rust extension). Edit that path to
-your own clone, or delete the block to use the published PyPI release.
+PyPI ships discopt wheels for CPython 3.10–3.13 on Linux and CPython 3.12 on
+macOS, so use a 3.12 interpreter on macOS (`uv sync --python 3.12`) to avoid
+building the Rust extension from source. To develop against a local `discopt`
+checkout instead, add a `[tool.uv.sources]` override pointing `discopt` at your
+editable clone of `github.com/jkitchin/discopt`.
 
 `uv.lock` pins the full dependency set for reproducibility. Add packages with
 `uv add <pkg>` (or `uv add --dev <pkg>` for tooling).

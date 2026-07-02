@@ -50,8 +50,3 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "discopt.mkm" = ["skill/SKILL.md"]
-
-# Local discopt checkout for development. Remove/override to use the published
-# release from PyPI (discopt>=0.5). Point the path at your own clone.
-[tool.uv.sources]
-discopt = { path = "/Users/jkitchin/projects/discopt", editable = true }
