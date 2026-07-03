@@ -72,9 +72,13 @@ class SteadyStateSolution:
                                   self.T_param, R, Tref, self.extents)
             for rxn in self.mkm.reactions
         }
+        # Reuse the snapshot's rate-of-progress expressions in the production-rate
+        # expressions instead of rebuilding each reaction subtree per species. The
+        # cached objects are the exact same expressions ``net_rate`` would build,
+        # so the production/DRC results are identical.
         self.prod_exprs = {
             sp: net_rate(sp, self.mkm.reactions, self.conc, self.theta, self.free_cov,
-                         self.T_param, R, Tref, self.extents)
+                         self.T_param, R, Tref, self.extents, rate_cache=self.rop_exprs)
             for sp in self.mkm.species
         }
         self.rate_constant_params = {rxn: rxn.rate_constant_param() for rxn in self.mkm.reactions}
@@ -249,13 +253,23 @@ def solve_steady_state(
         # quasi-equilibrated steps contribute an unknown extent + equilibrium relation
         extents, eq_residuals = quasi_equilibrium(m, mkm, conc, theta, free_cov, T_expr)
 
+        # Build each reaction's rate of progress ONCE and share it across every
+        # adsorbate and gas balance (see kinetics.net_rate). Identical expressions,
+        # smaller graph.
+        rate_cache = {
+            rxn: rate_of_progress(rxn, conc, theta, free_cov, T_expr, mkm.R, mkm.Tref, extents)
+            for rxn in mkm.reactions
+        }
+
         # steady-state residuals: net adsorbate production + reactor gas balance
         residuals = []
         for a in mkm.adsorbates:
-            r = net_rate(a, mkm.reactions, conc, theta, free_cov, T_expr, mkm.R, mkm.Tref, extents)
+            r = net_rate(a, mkm.reactions, conc, theta, free_cov, T_expr, mkm.R, mkm.Tref, extents,
+                         rate_cache=rate_cache)
             if isinstance(r, Expression):
                 residuals.append(r)
-        residuals.extend(reactor.gas_residuals(conc, theta, free_cov, T_expr, mkm, extents))
+        residuals.extend(reactor.gas_residuals(conc, theta, free_cov, T_expr, mkm, extents,
+                                               rate_cache=rate_cache))
         residuals.extend(eq_residuals)
 
         # energy balance closes the system when temperature is unknown
@@ -415,9 +429,17 @@ def _solve_log(mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver
 
     conc = reactor.create_gas(m, mkm)
 
+    # share each reaction's rate of progress across the adsorbate + gas balances
+    # (see kinetics.net_rate); log mode rejects equilibrated steps, so no extents.
+    rate_cache = {
+        rxn: rate_of_progress(rxn, conc, theta, free_cov, T_param, mkm.R, mkm.Tref)
+        for rxn in mkm.reactions
+    }
+
     # scaled steady-state residuals (O(1)) as hard constraints
     for a in mkm.adsorbates:
-        r = net_rate(a, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref)
+        r = net_rate(a, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref,
+                     rate_cache=rate_cache)
         if isinstance(r, Expression):
             m.subject_to(r / flux_mag(a) == 0.0, name=f"ss_{_safe(a.name)}")
     for s in mkm.sites:
@@ -429,7 +451,7 @@ def _solve_log(mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver
     # unscaled (like the linear path) — the balance already mixes an O(1) flow /
     # transport term with the reaction term, so its natural scale is O(1).
     for k, gres in enumerate(
-        reactor.gas_residuals(conc, theta, free_cov, T_param, mkm, extents=None)
+        reactor.gas_residuals(conc, theta, free_cov, T_param, mkm, extents=None, rate_cache=rate_cache)
     ):
         m.subject_to(gres == 0.0, name=f"gas_{k}")
 

@@ -135,14 +135,31 @@ def rate_of_progress(
 
 
 def net_rate(
-    sp: Species, reactions, conc: dict, theta: dict, free_cov: dict, T_expr, R: float, Tref: float, extents=None
+    sp: Species, reactions, conc: dict, theta: dict, free_cov: dict, T_expr, R: float, Tref: float,
+    extents=None, rate_cache: dict | None = None,
 ):
-    """Net production rate of a species ``R_i = sum_j nu_ij r_j``."""
+    """Net production rate of a species ``R_i = sum_j nu_ij r_j``.
+
+    ``rate_cache`` (optional) is a ``{reaction: rate_of_progress_expr}`` map built
+    once per model build and shared across every species balance. Passing it makes
+    each reaction's rate-of-progress subtree (its ``k_forward``/``k_reverse``/
+    ``K_eq``/thermo expression) be built exactly once and *reused* across all the
+    adsorbate and gas balances it appears in, instead of rebuilt per species. The
+    resulting expression is identical — the cached rate objects are made from the
+    same shared ``theta``/``conc``/parameter leaves the per-species build would
+    use — so the solve and degree-of-rate-control results are unchanged; only the
+    expression-graph size (and JAX compile time) shrinks. When ``rate_cache`` is
+    ``None`` the rate is built inline exactly as before.
+    """
     terms = []
     for rxn in reactions:
         nu = rxn.net_stoich().get(sp, 0.0)
         if nu != 0.0:
-            terms.append(nu * rate_of_progress(rxn, conc, theta, free_cov, T_expr, R, Tref, extents))
+            if rate_cache is not None:
+                rop = rate_cache[rxn]
+            else:
+                rop = rate_of_progress(rxn, conc, theta, free_cov, T_expr, R, Tref, extents)
+            terms.append(nu * rop)
     if not terms:
         return 0.0
     return dm.sum(terms)

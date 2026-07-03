@@ -61,8 +61,13 @@ class Reactor:
         """
         return {}
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
-        """Steady-state gas balance residual expressions (each constrained ``== 0``)."""
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
+        """Steady-state gas balance residual expressions (each constrained ``== 0``).
+
+        ``rate_cache`` (optional) is the shared ``{reaction: rate_of_progress}``
+        map from the model build; see :func:`discopt.mkm.kinetics.net_rate`.
+        """
         return []
 
     # transient hooks (defaults: gas is constant) ------------------------
@@ -140,12 +145,14 @@ class CSTR(Reactor):
     def nominal_gas(self, mkm: MicrokineticModel) -> dict:
         return dict(self.inlet)
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
         res = []
         for g in mkm.gas_species:
             Cin = float(self.inlet.get(g, 0.0))
             rxn_term = self.cat * net_rate(
-                g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents
+                g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents,
+                rate_cache=rate_cache,
             )
             res.append((Cin - conc[g]) / self.tau + rxn_term)
         return res
@@ -221,13 +228,15 @@ class MassTransferReactor(Reactor):
     def nominal_gas(self, mkm: MicrokineticModel) -> dict:
         return dict(self.bulk)
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
         res = []
         for g in mkm.gas_species:
             if g in self.km:
                 Cb = float(self.bulk.get(g, 0.0))
                 rxn_term = self.cat * net_rate(
-                    g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents
+                    g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents,
+                    rate_cache=rate_cache,
                 )
                 res.append(float(self.km[g]) * (Cb - conc[g]) + rxn_term)
         return res

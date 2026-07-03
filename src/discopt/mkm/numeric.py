@@ -34,6 +34,22 @@ def _reject_equilibrated(mkm):
         raise ValueError(_EQUILIBRATED_MSG)
 
 
+def _coverage_independent(mkm) -> bool:
+    """True when the rate constants do not depend on coverage.
+
+    ``rate_constants`` picks up coverage dependence only through lateral
+    interactions (the ``dH`` term) or a coverage-dependent (callable) species
+    enthalpy (the ``baseH`` term). Absent both, it returns the *same* ``kf``/
+    ``kr`` for any ``theta``, so they can be computed once and reused across a
+    residual / ODE-RHS evaluation instead of being rebuilt every iteration.
+    Computing with ``theta=None`` in that case is bit-identical to computing
+    with any coverage (``dH`` is 0 and ``baseH`` ignores ``theta``).
+    """
+    if getattr(mkm, "_interactions", None):
+        return False
+    return not any(callable(sp.H) for sp in mkm.species)
+
+
 def _interaction_map(mkm):
     """Numeric lateral-interaction map ``species -> [(partner, eps), ...]``."""
     inter = {}
@@ -157,6 +173,13 @@ def steady_state_numeric(
     ads = mkm.adsorbates
     conc = {g: float(pressures.get(g, 0.0)) for g in mkm.gas_species}
 
+    # When kinetics are coverage-independent the rate constants are invariant
+    # over the iteration; hoist them out of the residual (identical numbers).
+    ci = _coverage_independent(mkm)
+    kf0 = kr0 = None
+    if ci:
+        kf0, kr0 = rate_constants(mkm, T, None)
+
     def unpack(x):
         theta = {a: x[i] for i, a in enumerate(ads)}
         free = {s: 1.0 - sum(theta[a] for a in mkm.adsorbates_on(s)) for s in mkm.sites}
@@ -164,7 +187,7 @@ def steady_state_numeric(
 
     def resid(x):
         theta, free = unpack(x)
-        kf, kr = rate_constants(mkm, T, theta)  # coverage-dependent when interactions on
+        kf, kr = (kf0, kr0) if ci else rate_constants(mkm, T, theta)  # coverage-dependent when interactions on
         rops = rates_of_progress(mkm, kf, kr, theta, free, conc)
         return [net_rate(mkm, a, rops) for a in ads]
 
@@ -184,7 +207,7 @@ def steady_state_numeric(
     # so a genuine near-equilibrium cancellation (net ~ 1e-6 of a ~1e6 flux) is
     # not flagged, but a non-converged basin is.
     theta, free = unpack(x)
-    kf, kr = rate_constants(mkm, T, theta)
+    kf, kr = (kf0, kr0) if ci else rate_constants(mkm, T, theta)
     fluxes = [abs(kf[r] * _prod(r.reactants, theta, free, conc)) for r in mkm.reactions]
     fluxes += [abs(kr[r] * _prod(r.products, theta, free, conc)) for r in mkm.reactions]
     scale = max(fluxes + [1e-30])
@@ -276,6 +299,17 @@ def integrate_coverages(mkm, conc, T, t_eval, theta0=None, dae=False, rtol=1e-8,
     theta0 = theta0 or {}
     span = (float(t_eval[0]), float(t_eval[-1]))
 
+    # coverage-independent kinetics: rate constants are invariant over the whole
+    # integration, so compute them once and reuse (identical numbers) rather than
+    # rebuilding them on every stiff-solver RHS evaluation.
+    ci = _coverage_independent(mkm)
+    kf0 = kr0 = None
+    if ci:
+        kf0, kr0 = rate_constants(mkm, T, None)
+
+    def _rate_constants(theta):
+        return (kf0, kr0) if ci else rate_constants(mkm, T, theta)
+
     def _gas(t):
         return {g: float(conc_fn(t).get(g, 0.0)) for g in mkm.gas_species}
 
@@ -283,7 +317,7 @@ def integrate_coverages(mkm, conc, T, t_eval, theta0=None, dae=False, rtol=1e-8,
         def rhs(t, x):
             theta = {a: x[i] for i, a in enumerate(ads)}
             free = {s: max(1.0 - sum(theta[a] for a in mkm.adsorbates_on(s)), 0.0) for s in sites}
-            kf, kr = rate_constants(mkm, T, theta)
+            kf, kr = _rate_constants(theta)
             rops = rates_of_progress(mkm, kf, kr, theta, free, _gas(t))
             return [net_rate(mkm, a, rops) for a in ads]
 
@@ -300,7 +334,7 @@ def integrate_coverages(mkm, conc, T, t_eval, theta0=None, dae=False, rtol=1e-8,
     def rhs(t, x):
         theta = {a: x[i] for i, a in enumerate(ads)}
         free = {s: x[site_pos[s]] for s in sites}
-        kf, kr = rate_constants(mkm, T, theta)
+        kf, kr = _rate_constants(theta)
         rops = rates_of_progress(mkm, kf, kr, theta, free, _gas(t))
         d = [net_rate(mkm, a, rops) for a in ads]
         d += [1.0 - sum(theta[a] for a in mkm.adsorbates_on(s)) - free[s] for s in sites]

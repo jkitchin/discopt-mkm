@@ -21,6 +21,11 @@ class Reaction:
         self.reactants: dict[Species, float] = dict(reactants)
         self.products: dict[Species, float] = dict(products)
         self.name: str | None = None
+        # Lazily-computed cache of net stoichiometry. The reactant/product maps
+        # are fixed at construction, so ``net_stoich`` is invariant and can be
+        # computed once (it is called in every hot rate/ODE/build loop). See
+        # :meth:`net_stoich`.
+        self._net_stoich_cache: dict[Species, float] | None = None
         # Arrhenius mode (default): forward k = A exp(-Ea/RT), reverse derived
         # from species thermodynamics.
         self.A: float | None = None
@@ -72,14 +77,26 @@ class Reaction:
         return float(self.kf if self.explicit_rate else self.A)
 
     def net_stoich(self) -> dict[Species, float]:
-        """Net stoichiometric coefficients ``nu_i`` (products positive)."""
+        """Net stoichiometric coefficients ``nu_i`` (products positive).
+
+        The result is cached after first use: ``reactants``/``products`` are
+        fixed at construction, so the net stoichiometry is invariant. This
+        method is called in every hot rate/ODE/expression-build loop, so the
+        cache avoids rebuilding a ``defaultdict`` on each call. Callers must
+        treat the returned dict as read-only (none in the package mutate it).
+        """
+        cache = self._net_stoich_cache
+        if cache is not None:
+            return cache
         nu: dict[Species, float] = defaultdict(float)
         for s, c in self.reactants.items():
             nu[s] -= c
         for s, c in self.products.items():
             nu[s] += c
         # drop species that cancel out
-        return {s: c for s, c in nu.items() if abs(c) > 1e-12}
+        cache = {s: c for s, c in nu.items() if abs(c) > 1e-12}
+        self._net_stoich_cache = cache
+        return cache
 
     def species(self) -> set[Species]:
         """All species participating in the reaction."""
