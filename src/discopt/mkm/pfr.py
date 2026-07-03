@@ -141,7 +141,7 @@ def solve_pfr(
                 g, mkm.reactions, conc, theta, free, T_expr, mkm.R, mkm.Tref
             )
         if energy is not None:
-            cp_mix = mixture_heat_capacity(mkm, conc)
+            cp_mix = mixture_heat_capacity(mkm, conc, T_expr)
             q = heat_release_rate(mkm, conc, theta, free, T_expr, cat_density)
             d["T"] = (q + energy.Q) / (velocity * cp_mix)
         return d

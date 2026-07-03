@@ -79,13 +79,22 @@ def reaction_html(rxn) -> str:
     return f"{_side_html(rxn.reactants)} {a} {_side_html(rxn.products)}"
 
 
+def _electrochem_html(rxn) -> str:
+    """Faradaic annotation ``n_e=…, β=…`` for an electrochemical step ('' otherwise)."""
+    if not getattr(rxn, "is_electrochemical", False):
+        return ""
+    return f", n<sub>e</sub>={rxn.n_electrons:g}, &beta;={rxn.beta:g}"
+
+
 def _kinetics_html(rxn) -> str:
+    ec = _electrochem_html(rxn)
     if rxn.equilibrated:
-        return f"equilibrated, K<sub>eq</sub>={rxn.Keq:g}" if rxn.Keq is not None else "equilibrated (thermo)"
+        base = f"equilibrated, K<sub>eq</sub>={rxn.Keq:g}" if rxn.Keq is not None else "equilibrated (thermo)"
+        return base + ec
     if rxn.explicit_rate:
         keq = "&mdash;" if rxn.irreversible else f"{rxn.Keq:g}"
-        return f"k<sub>f</sub>={rxn.kf:g}, K<sub>eq</sub>={keq}"
-    return f"A={rxn.A:g}, E<sub>a</sub>={rxn.Ea:g}"
+        return f"k<sub>f</sub>={rxn.kf:g}, K<sub>eq</sub>={keq}" + ec
+    return f"A={rxn.A:g}, E<sub>a</sub>={rxn.Ea:g}" + ec
 
 
 def mechanism_html(mkm) -> str:
@@ -104,7 +113,13 @@ def mechanism_html(mkm) -> str:
             f"<td style='text-align:center'>{type_label[_kind(rxn)]}</td></tr>"
         )
     rows.append("</table>")
-    title = f"<b>{mkm.name}</b> &mdash; T={mkm.T:g}, {len(mkm.species)} species, {len(mkm.reactions)} steps<br>"
+    # show the electrode potential for an electrochemical mechanism (U != 0 or any
+    # faradaic step), alongside temperature.
+    is_electrochemical = mkm.U != 0.0 or any(
+        getattr(rxn, "is_electrochemical", False) for rxn in mkm.reactions)
+    conditions = f"T={mkm.T:g}" + (f", U={mkm.U:g}" if is_electrochemical else "")
+    title = (f"<b>{mkm.name}</b> &mdash; {conditions}, "
+             f"{len(mkm.species)} species, {len(mkm.reactions)} steps<br>")
     return title + "\n".join(rows)
 
 

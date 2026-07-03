@@ -34,7 +34,17 @@ def optimize_descriptor(scaling, n_electrons, bounds, F: float = 1.0, U_eq: floa
     Returns
     -------
     dict with ``descriptor``, ``limiting_potential`` (and ``overpotential``).
+
+    Reduction-only: like :func:`~discopt.mkm.electrochem.limiting_potential`, the
+    max-min formulation assumes every step reduces (``n_i > 0``). An oxidation step
+    (``n_i < 0``) flips the exergonicity constraint, so this raises for one.
     """
+    oxidation = [i for i, n in enumerate(n_electrons) if n < 0]
+    if oxidation:
+        raise ValueError(
+            "optimize_descriptor assumes reduction steps (n_electrons > 0); step(s) "
+            f"{oxidation} have n_electrons < 0 (oxidation), for which the limiting-"
+            "potential exergonicity inequality flips and the volcano LP does not apply.")
     m = dm.Model("descriptor_volcano")
     d = m.continuous("d", lb=float(bounds[0]), ub=float(bounds[1]))
     U_L = m.continuous("U_L", lb=-50.0, ub=50.0)

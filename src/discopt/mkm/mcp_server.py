@@ -39,11 +39,12 @@ def structure(spec: dict) -> dict:
 
 
 @mcp.tool()
-def solve(spec: dict, coordinates: str = "linear") -> dict:
+def solve(spec: dict, coordinates: str = "linear", method: str = "auto") -> dict:
     """Solve the steady state. Returns coverages, free-site coverage, gas concentrations,
     rates of progress, and status. Use coordinates='log' for stiff near-equilibrium
-    mechanisms (e.g. water-gas shift)."""
-    return agent.solve(spec, coordinates=coordinates)
+    mechanisms (e.g. water-gas shift). method is the linear-coordinate solver strategy
+    ('auto', 'feasibility', or 'least_squares')."""
+    return agent.solve(spec, coordinates=coordinates, method=method)
 
 
 @mcp.tool()
@@ -68,10 +69,45 @@ def analyze(spec: dict, target: str | None = None, coordinates: str = "linear") 
 
 
 @mcp.tool()
-def report(spec: dict, target: str | None = None, path: str | None = None) -> str:
+def report(spec: dict, target: str | None = None, coordinates: str = "linear",
+           path: str | None = None) -> str:
     """Render a self-contained HTML mechanism report (mechanism, structure, figures,
-    steady state, DRC). Writes to `path` if given, else returns the HTML."""
-    return agent.report(spec, target=target, path=path)
+    steady state, DRC). Writes to `path` if given, else returns the HTML. Use
+    coordinates='log' for stiff near-equilibrium mechanisms."""
+    return agent.report(spec, target=target, coordinates=coordinates, path=path)
+
+
+# --------------------------------------------------------------- electrochemistry
+@mcp.tool()
+def current(spec: dict, coordinates: str = "linear") -> dict:
+    """Faradaic current (j = F * sum n_j r_j, per active site) at the solved steady
+    state of an electrochemical mechanism. Set model-level `U` (volts) and mark the
+    faradaic steps with `n_electrons`. Returns {U, current, status}."""
+    return agent.current(spec, coordinates=coordinates)
+
+
+@mcp.tool()
+def tafel_slope(spec: dict, coordinates: str = "linear") -> dict:
+    """Tafel slope (dU/dlog10|j|, V/decade) and apparent transfer coefficient at the
+    solved steady state. Evaluate in the Tafel region (away from the equilibrium
+    potential where j crosses zero). Returns {U, tafel_slope, transfer_coefficient, status}."""
+    return agent.tafel_slope(spec, coordinates=coordinates)
+
+
+@mcp.tool()
+def che_diagram(spec: dict, U: float | None = None) -> dict:
+    """Computational-hydrogen-electrode (CHE) free-energy diagram along the faradaic
+    steps at potential `U` (default: the spec's U). Returns {U, steps, delta_g,
+    cumulative} — the per-step and cumulative reaction free energies. No solve needed."""
+    return agent.che_diagram(spec, U=U)
+
+
+@mcp.tool()
+def limiting_potential(spec: dict) -> dict:
+    """Limiting potential U_L: the most positive potential at which every faradaic
+    step is exergonic (a reduction/CHE descriptor; raises for oxidation mechanisms).
+    Returns {limiting_potential}."""
+    return agent.limiting_potential(spec)
 
 
 def main():  # pragma: no cover

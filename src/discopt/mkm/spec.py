@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from discopt.mkm.reaction import Reaction
 
@@ -28,7 +28,9 @@ _TERM = re.compile(r"^(\d+\.?\d*)?\s*(\S.*)$")
 def parse_equation(eq: str):
     """Parse ``"A + 2 B <=> C"`` -> ``(reactants, products, irreversible)``.
 
-    ``reactants``/``products`` are ``{species_name: coefficient}`` dicts.
+    ``reactants``/``products`` are ``{species_name: coefficient}`` dicts. Terms are
+    separated by a '+' surrounded by whitespace, so a species name may itself end
+    in '+' (e.g. the ion ``"H+"`` in ``"O2 + H+ + * -> OOH*"``).
     """
     for tok, irreversible in _ARROWS:
         if tok in eq:
@@ -39,7 +41,11 @@ def parse_equation(eq: str):
 
 def _parse_side(side: str) -> dict:
     terms: dict[str, float] = {}
-    for part in side.split("+"):
+    # Split on a '+' that *separates* terms (whitespace on both sides), so a
+    # trailing '+' in a species name (an ion such as "H+") is preserved. This
+    # requires spaces around the term-separating '+' — as all reaction strings in
+    # the package's examples/tests already use ("CO + 2 * <=> ...").
+    for part in re.split(r"\s+\+\s+", side.strip()):
         part = part.strip()
         if not part:
             continue
@@ -51,7 +57,15 @@ def _parse_side(side: str) -> dict:
 
 
 # --------------------------------------------------------------------------- schema
+# Reject unknown keys everywhere: a typo (``reactons:``, ``n_electron:``) or a
+# field on the wrong model is a silent-wrong-answer trap otherwise (it is dropped
+# and the model builds with a default), so forbid extras and surface it as a
+# validation error.
+_STRICT = ConfigDict(extra="forbid")
+
+
 class ThermoSpec(BaseModel):
+    model_config = _STRICT
     type: Literal["nasa7", "shomate"]
     low: Optional[list[float]] = None
     high: Optional[list[float]] = None
@@ -60,11 +74,13 @@ class ThermoSpec(BaseModel):
 
 
 class SiteSpec(BaseModel):
+    model_config = _STRICT
     name: str
     density: float = 1.0
 
 
 class SpeciesSpec(BaseModel):
+    model_config = _STRICT
     name: str
     H: float = 0.0
     S: float = 0.0
@@ -78,6 +94,7 @@ class AdsorbateSpec(SpeciesSpec):
 
 
 class ReactionSpec(BaseModel):
+    model_config = _STRICT
     equation: str
     A: Optional[float] = None
     Ea: Optional[float] = None
@@ -92,12 +109,14 @@ class ReactionSpec(BaseModel):
 
 
 class InteractionSpec(BaseModel):
+    model_config = _STRICT
     a: str
     b: str
     eps: float
 
 
 class ReactorSpec(BaseModel):
+    model_config = _STRICT
     type: Literal["differential", "cstr", "batch"] = "differential"
     pressures: dict[str, float] = {}
     inlet: dict[str, float] = {}
@@ -109,6 +128,7 @@ class ReactorSpec(BaseModel):
 class ModelSpec(BaseModel):
     """A complete microkinetic model as data (validated, JSON-schema-able)."""
 
+    model_config = _STRICT
     name: str = "model"
     T: float = 500.0
     R: float = 8.617e-5
@@ -188,11 +208,31 @@ def _stoich(m, terms, eq):
 
 def _reactor(m, rs: ReactorSpec):
     from discopt.mkm.reactors import CSTR, Batch, DifferentialReactor
+    from discopt.mkm.species import GasSpecies
 
     if rs.type == "differential":
-        return DifferentialReactor({_resolve(m, k): v for k, v in rs.pressures.items()})
+        if rs.inlet or rs.initial:
+            raise ValueError(
+                "differential reactor uses 'pressures' (fixed gas activities), not "
+                "'inlet'/'initial'")
+        pres = {}
+        for k, v in rs.pressures.items():
+            sp = _resolve(m, k)
+            if not isinstance(sp, GasSpecies):
+                raise ValueError(
+                    f"differential reactor 'pressures' key {k!r} is a {type(sp).__name__.lower()}, "
+                    "not a gas species; only gas partial pressures can be fixed")
+            pres[sp] = v
+        return DifferentialReactor(pres)
     if rs.type == "cstr":
+        if rs.pressures or rs.initial:
+            raise ValueError(
+                "cstr reactor uses 'inlet' (feed concentrations) and 'tau', not "
+                "'pressures'/'initial'")
         return CSTR({_resolve(m, k): v for k, v in rs.inlet.items()}, tau=rs.tau, cat_density=rs.cat_density)
+    # batch
+    if rs.pressures or rs.inlet:
+        raise ValueError("batch reactor uses 'initial' (starting concentrations), not 'pressures'/'inlet'")
     return Batch({_resolve(m, k): v for k, v in rs.initial.items()}, cat_density=rs.cat_density)
 
 
@@ -210,7 +250,12 @@ def from_yaml(text_or_path):
 
 
 def to_spec(mkm, reactor=None) -> dict:
-    """Export a model (and optional reactor) back to a spec dict."""
+    """Export a model (and optional reactor) back to a spec dict.
+
+    Round-trips through :func:`from_spec`: temperature-dependent thermo models
+    (NASA7 / Shomate) and the reactor type (differential / cstr / batch) are
+    preserved.
+    """
     s = {
         "name": mkm.name, "T": mkm.T, "R": mkm.R, "Tref": mkm.Tref, "U": mkm.U, "F": mkm.F,
         "sites": [{"name": x.name, "density": x.density} for x in mkm.sites],
@@ -219,18 +264,62 @@ def to_spec(mkm, reactor=None) -> dict:
         "reactions": [_rxn_dict(r) for r in mkm.reactions],
         "interactions": [{"a": a.name, "b": b.name, "eps": e} for a, b, e in mkm._interactions],
     }
-    if reactor is not None and hasattr(reactor, "pressures"):
-        s["reactor"] = {"type": "differential",
-                        "pressures": {g.name: float(v) for g, v in reactor.pressures.items()}}
+    if reactor is not None:
+        rd = _reactor_dict(reactor)
+        if rd is not None:
+            s["reactor"] = rd
     return s
+
+
+def _reactor_dict(reactor):
+    """Reactor -> spec dict for the three spec-supported types; ``None`` otherwise."""
+    from discopt.mkm.reactors import CSTR, Batch, DifferentialReactor
+
+    if isinstance(reactor, DifferentialReactor):
+        return {"type": "differential",
+                "pressures": {g.name: float(v) for g, v in reactor.pressures.items()}}
+    if isinstance(reactor, CSTR):
+        return {"type": "cstr",
+                "inlet": {g.name: float(v) for g, v in reactor.inlet.items()},
+                "tau": reactor.tau, "cat_density": reactor.cat}
+    if isinstance(reactor, Batch):
+        return {"type": "batch",
+                "initial": {g.name: float(v) for g, v in reactor.initial.items()},
+                "cat_density": reactor.cat}
+    return None
+
+
+def _thermo_dict(thermo):
+    """Thermo model -> ThermoSpec dict (NASA7 / Shomate); ``None`` if not exportable."""
+    from discopt.mkm.thermo_models import NASA7, Shomate
+
+    if isinstance(thermo, NASA7):
+        return {"type": "nasa7", "low": list(thermo.low), "high": list(thermo.high),
+                "Tmid": thermo.Tmid}
+    if isinstance(thermo, Shomate):
+        return {"type": "shomate", "coeffs": list(thermo.coef)}
+    return None
 
 
 def _sp_dict(sp):
     d = {"name": sp.name, "S": sp.S, "Cp": sp.Cp}
-    if not callable(sp.H):
+    if callable(sp.H):
+        import warnings
+
+        warnings.warn(
+            f"species {sp.name!r} has a callable (coverage-dependent) H; it cannot be "
+            "represented in a spec and is exported without an H value (a from_spec "
+            "round-trip will give it H=0). Set a constant H or interactions instead.",
+            stacklevel=2,
+        )
+    else:
         d["H"] = sp.H
     if sp.composition:
         d["composition"] = dict(sp.composition)
+    if getattr(sp, "thermo", None) is not None:
+        td = _thermo_dict(sp.thermo)
+        if td is not None:
+            d["thermo"] = td
     return d
 
 

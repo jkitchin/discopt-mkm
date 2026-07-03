@@ -45,10 +45,18 @@ def lumped_rate_expression(mkm, target_species):
     def act(s):
         return P.get(s) or theta.get(s) or free.get(s)
 
+    def coeff(c):
+        """Exact stoichiometric exponent: a small-denominator Rational when the
+        coefficient is (near) rational (so ``0.5 O2`` keeps ``P_O2 ** (1/2)``),
+        else the raw float. ``int(c)`` here would silently delete fractional
+        species from the derived rate law."""
+        r = sp.Rational(c).limit_denominator(1000)
+        return r if abs(float(r) - float(c)) < 1e-9 else sp.Float(c)
+
     def mass(stoich):
         e = sp.Integer(1)
         for s, c in stoich.items():
-            e *= act(s) ** int(c)
+            e *= act(s) ** coeff(c)
         return e
 
     # coverage-determining subsystem: equilibrium relations + site balances
@@ -74,7 +82,7 @@ def lumped_rate_expression(mkm, target_species):
         rop = kf[r] * mass(r.reactants)
         if not r.irreversible:
             rop = rop - (kf[r] / Keq[r]) * mass(r.products)
-        rate += int(nu) * rop
+        rate += coeff(nu) * rop
 
     rate = sp.simplify(rate.subs(cover))
     symbols = {"P": P, "kf": kf, "Keq": Keq, "theta": theta}

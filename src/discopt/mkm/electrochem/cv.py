@@ -21,22 +21,7 @@ Randles-Sevcik ``i_p ∝ sqrt(scan_rate)`` scaling.
 from __future__ import annotations
 
 import numpy as np
-
-
-def _thomas(a, b, c, d):
-    """Solve a tridiagonal system (sub ``a``, diag ``b``, super ``c``, rhs ``d``)."""
-    n = len(d)
-    cp = np.empty(n); dp = np.empty(n)
-    cp[0] = c[0] / b[0]; dp[0] = d[0] / b[0]
-    for i in range(1, n):
-        m = b[i] - a[i] * cp[i - 1]
-        cp[i] = c[i] / m
-        dp[i] = (d[i] - a[i] * dp[i - 1]) / m
-    x = np.empty(n)
-    x[-1] = dp[-1]
-    for i in range(n - 2, -1, -1):
-        x[i] = dp[i] - cp[i] * x[i + 1]
-    return x
+from scipy.linalg import solve_banded
 
 
 def cyclic_voltammogram(U0=0.0, k0=1.0, alpha=0.5, n_electrons=1,
@@ -75,9 +60,20 @@ def cyclic_voltammogram(U0=0.0, k0=1.0, alpha=0.5, n_electrons=1,
     DoverDx = D / dx
     current = np.empty(U.size)
 
-    # backward-Euler tridiagonal coefficients (interior rows are time-invariant)
-    a = np.full(nx, -lam); b = np.full(nx, 1.0 + 2.0 * lam); c = np.full(nx, -lam)
-    b[-1] = 1.0; a[-1] = 0.0; c[-1] = 0.0          # bulk Dirichlet C = C_bulk
+    # Backward-Euler tridiagonal system solved with LAPACK's banded solver.
+    # Only the surface row (row 0) changes between time steps — the interior
+    # and bulk-Dirichlet rows are time-invariant — so the banded matrix is
+    # built once and only its first row is updated each step. ``ab`` is the
+    # (l=1, u=1) banded layout expected by ``solve_banded``:
+    #   ab[0, j+1] = super-diagonal A[j, j+1]
+    #   ab[1, j]   = diagonal A[j, j]
+    #   ab[2, j-1] = sub-diagonal A[j, j-1]
+    ab = np.zeros((3, nx))
+    ab[1, :] = 1.0 + 2.0 * lam       # interior diagonal
+    ab[0, 1:] = -lam                 # super-diagonal (row i has c = -lam)
+    ab[2, :-1] = -lam                # sub-diagonal (row i has a = -lam)
+    ab[1, -1] = 1.0                  # bulk Dirichlet C = C_bulk
+    ab[2, -2] = 0.0                  # (no sub-diagonal coupling into bulk row)
 
     for k, Uk in enumerate(U):
         kf = k0 * np.exp(-alpha * f * (Uk - U0))    # reduction (cathodic)
@@ -85,10 +81,11 @@ def cyclic_voltammogram(U0=0.0, k0=1.0, alpha=0.5, n_electrons=1,
         d = C.copy()
         # surface Robin BC (algebraic flux balance, no accumulation):
         #   D (C_1 - C_0)/dx = (kf+kb) C_0 - kb C_bulk
-        b[0] = -(DoverDx + kf + kb); c[0] = DoverDx; a[0] = 0.0
+        ab[1, 0] = -(DoverDx + kf + kb)   # diagonal, row 0
+        ab[0, 1] = DoverDx                # super-diagonal, row 0
         d[0] = -kb * C_bulk
         d[-1] = C_bulk
-        C = _thomas(a, b, c, d)
+        C = solve_banded((1, 1), ab, d)
         J = (kf + kb) * C[0] - kb * C_bulk          # net reduction flux at surface
         current[k] = -n_electrons * F * area * J     # cathodic negative
     return U, current

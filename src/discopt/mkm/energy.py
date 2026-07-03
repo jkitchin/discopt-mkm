@@ -57,6 +57,13 @@ def dH_rxn(rxn: Reaction, T_expr, R, Tref, theta=None):
 
 def heat_release_rate(mkm: MicrokineticModel, conc, theta, free, T_expr, cat_density):
     """Volumetric heat release ``cat * sum_j (-dH_j) r_j`` (positive = exothermic)."""
+    if any(getattr(rxn, "equilibrated", False) for rxn in mkm.reactions):
+        raise NotImplementedError(
+            "energy balance with equilibrated (quasi-equilibrium) steps is not "
+            "supported: the released heat needs each step's rate of progress, but a "
+            "quasi-equilibrated step's rate is an unknown extent not available to this "
+            "term. Re-express the fast steps with explicit kf/Keq (or A/Ea)."
+        )
     terms = []
     for rxn in mkm.reactions:
         r = rate_of_progress(rxn, conc, theta, free, T_expr, mkm.R, mkm.Tref)
@@ -64,10 +71,25 @@ def heat_release_rate(mkm: MicrokineticModel, conc, theta, free, T_expr, cat_den
     return cat_density * dm.sum(terms)
 
 
-def mixture_heat_capacity(mkm: MicrokineticModel, conc):
-    """Volumetric gas heat capacity ``sum_i C_i Cp_i``."""
+def mixture_heat_capacity(mkm: MicrokineticModel, conc, T_expr=None):
+    """Volumetric gas heat capacity ``sum_i C_i Cp_i``.
+
+    A species whose heat capacity lives in a temperature-dependent ``thermo`` model
+    (``Cp_param is None``) contributes ``thermo.Cp(T)`` — falling back to the
+    constant ``g.Cp`` (typically 0.0) there would silently drop it from the thermal
+    mass. ``T_expr`` (the current temperature expression) is required whenever any
+    gas species carries a thermo model.
+    """
     terms = []
     for g in mkm.gas_species:
-        cp = g.Cp_param if getattr(g, "Cp_param", None) is not None else g.Cp
+        if getattr(g, "thermo", None) is not None:
+            if T_expr is None:
+                raise ValueError(
+                    "mixture_heat_capacity needs T_expr for a species with a thermo model")
+            cp = g.thermo.Cp(T_expr, mkm.R)
+        elif getattr(g, "Cp_param", None) is not None:
+            cp = g.Cp_param
+        else:
+            cp = g.Cp
         terms.append(conc[g] * cp)
     return dm.sum(terms)

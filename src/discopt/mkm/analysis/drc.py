@@ -65,7 +65,9 @@ def degree_of_rate_control(solution, rate_expr=None, species=None) -> dict:
             # of rate control is structurally zero (the QEA asserts it).
             out[rxn] = 0.0
             continue
-        handle = rxn.rate_constant_param()  # A_param (Arrhenius) or kf_param (explicit)
+        # use the handle snapshotted on this solution (stable if the model was
+        # re-solved since), not the live one on the shared reaction object
+        handle = (solution.rate_constant_params or {}).get(rxn) or rxn.rate_constant_param()
         start, _ = param_slice(handle, model)
         k = rxn.rate_constant_value()
         out[rxn] = (k / r_star) * float(dr_dp[start])
@@ -101,8 +103,10 @@ def thermo_rate_control(solution, rate_expr=None, species=None) -> dict:
     kBT = mkm.R * mkm.T
     out = {}
     for sp in mkm.species:
-        if sp.dG_param is None:
+        # snapshotted free-energy handle (stable across later re-solves)
+        handle = (solution.dG_params or {}).get(sp, sp.dG_param)
+        if handle is None:
             continue
-        start, _ = param_slice(sp.dG_param, model)
+        start, _ = param_slice(handle, model)
         out[sp] = -(kBT / r_star) * float(dr_dp[start])
     return out

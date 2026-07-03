@@ -4,11 +4,13 @@ superset, instead of enumerating combinatorially.
 Three complementary methods, all built on the existing assembly and analysis
 machinery (none reimplements numerics):
 
-- :func:`reduce_by_drc` -- screen a candidate mechanism by flux, then rank the
-  surviving steps by the exact Campbell degree of rate control. Removing a step
-  that carries negligible flux provably cannot change the steady state, so the
-  flux screen is safe; the degree of rate control then explains which retained
-  steps actually control the rate.
+- :func:`reduce_by_drc` -- screen a candidate mechanism by *one-way* flux, then
+  rank the surviving steps by the exact Campbell degree of rate control. A step
+  that carries negligible one-way flux (both forward and reverse) cannot affect
+  the steady state, so the screen is safe; screening on *net* flux instead would
+  wrongly drop a fast quasi-equilibrated spectator step (net flux ~ 0 yet it can
+  pin a coverage near saturation and control every rate). The degree of rate
+  control then explains which retained steps actually control the rate.
 - :func:`select_subgraph` -- pose mechanism selection as a sparse MINLP: a binary
   in/out variable per step, big-M-gated rates, the steady-state balances as
   constraints, and an objective that trades data misfit against the number of
@@ -30,6 +32,7 @@ import numpy as np
 from discopt.mkm.analysis import degree_of_rate_control
 from discopt.mkm.analysis.drc import SensitivityUnavailable
 from discopt.mkm.numeric import (
+    _prod,
     integrate_coverages,
     net_rate,
     rate_constants,
@@ -46,6 +49,19 @@ from discopt.mkm.steady_state import solve_steady_state
 # --------------------------------------------------------------------------- #
 def _name(x):
     return x if isinstance(x, str) else x.name
+
+
+def _reject_equilibrated(model):
+    """Selection runs on the pure-NumPy evaluator, which cannot model
+    ``equilibrated`` (quasi-equilibrium) steps (it deletes them, silently solving
+    a different mechanism). Reject such specs up front with a clear message rather
+    than crash deep inside the numeric solve."""
+    if any(r.equilibrated for r in model.reactions):
+        raise ValueError(
+            "mechanism has equilibrated (quasi-equilibrium) steps; the numeric "
+            "evaluator cannot model them. Re-express the fast steps with explicit "
+            "kf/Keq (or A/Ea) before mechanism reduction/selection."
+        )
 
 
 def _pressures_by_name(condition) -> dict:
@@ -113,15 +129,21 @@ def _submodel(model, keep_reactions, reactor=None):
 def _drc_table(model, pres_by_name_list, target_name, T):
     """Aggregate max |X_RC| per reaction over conditions, on a (conditioned) model.
 
-    Warm-starts the differentiable solve from the robust numeric root and falls
-    back to log-coordinates if the linear KKT is ill-conditioned.
+    Tries the linear differentiable solve first, falling back to a log-coordinate
+    solve warm-started from the robust numeric root if the linear KKT is
+    ill-conditioned. If *no* condition yields sensitivities, returns ``None`` for
+    every reaction (an honest "DRC could not be computed", matching the agent
+    layer's ``drc: null`` contract) rather than a misleading all-zero table.
     """
     agg = {r: 0.0 for r in model.reactions}
+    any_success = False
     for pres in pres_by_name_list:
         theta, _ = _numeric_state(model, pres, T)
         reactor = _reactor(model, pres)
         X = None
-        for kw in (dict(theta0=theta, active_tol=1e-12),
+        # the linear solve ignores theta0 (it only warm-starts log coordinates), so
+        # don't pass it there; the log fallback does use the numeric warm start.
+        for kw in (dict(active_tol=1e-12),
                    dict(coordinates="log", theta0=theta, log_box=4.0,
                         reg_weight=0.1, active_tol=1e-12)):
             try:
@@ -132,8 +154,11 @@ def _drc_table(model, pres_by_name_list, target_name, T):
                 continue
         if X is None:
             continue
+        any_success = True
         for r, v in X.items():
             agg[r] = max(agg[r], abs(float(v)))
+    if not any_success:
+        return {r: None for r in model.reactions}
     return agg
 
 
@@ -168,9 +193,11 @@ def reduce_by_drc(model, conditions, target, *, flux_tol=1e-6, tof_tol=0.05, T=N
     target : Species or str
         The product whose turnover rate must be preserved.
     flux_tol : float
-        Drop steps whose largest normalized flux over the conditions is below
-        this (relative to the most active step). Removing a negligible-flux step
-        provably cannot change the steady state.
+        Drop steps whose largest normalized *one-way* flux over the conditions is
+        below this (relative to the most active step). One-way (not net) flux is
+        the right screen: a step carrying negligible forward *and* reverse flux
+        cannot affect the steady state, whereas a fast quasi-equilibrated
+        spectator has net flux ~ 0 but large one-way flux and must be kept.
     tof_tol : float
         Sanity bound: raise if the reduced model's turnover rate differs from the
         full model's by more than this (relative) at any condition.
@@ -179,6 +206,7 @@ def reduce_by_drc(model, conditions, target, *, flux_tol=1e-6, tof_tol=0.05, T=N
     -------
     ReductionResult
     """
+    _reject_equilibrated(model)
     T = model.T if T is None else float(T)
     target_name = _name(target)
     conds = [_pressures_by_name(c) for c in conditions]
@@ -186,10 +214,15 @@ def reduce_by_drc(model, conditions, target, *, flux_tol=1e-6, tof_tol=0.05, T=N
     full_tof, agg_flux = [], {r: 0.0 for r in model.reactions}
     for pres in conds:
         theta, free = _numeric_state(model, pres, T, theta0)
-        rop, tof = _flux_and_tof(model, theta, free, pres, T, target_name)
+        _, tof = _flux_and_tof(model, theta, free, pres, T, target_name)
         full_tof.append(tof)
-        for r, v in rop.items():
-            agg_flux[r] = max(agg_flux[r], abs(float(v)))
+        # screen on the one-way flux max(|forward|, |reverse|), not the net rate
+        conc = {g: pres.get(g.name, 0.0) for g in model.gas_species}
+        kf, kr = rate_constants(model, T, theta)
+        for r in model.reactions:
+            fwd = abs(float(kf[r] * _prod(r.reactants, theta, free, conc)))
+            rev = abs(float(kr[r] * _prod(r.products, theta, free, conc)))
+            agg_flux[r] = max(agg_flux[r], fwd, rev)
 
     fmax = max(agg_flux.values()) or 1.0
     flux_norm = {r: agg_flux[r] / fmax for r in model.reactions}
@@ -207,8 +240,9 @@ def reduce_by_drc(model, conditions, target, *, flux_tol=1e-6, tof_tol=0.05, T=N
             max_err = max(max_err, abs(tof - tof0) / abs(tof0))
     if max_err > tof_tol:
         raise ValueError(
-            f"flux screen at flux_tol={flux_tol:g} changed the turnover rate by "
-            f"{max_err:.2%} (> {tof_tol:.0%}); lower flux_tol to keep more steps")
+            f"one-way-flux screen at flux_tol={flux_tol:g} changed the turnover rate "
+            f"by {max_err:.2%} (> {tof_tol:.0%}); a screened-out step still affects the "
+            f"steady state. Lower flux_tol to keep more steps")
 
     drc = _drc_table(reduced, conds, target_name, T)
 
@@ -401,6 +435,7 @@ def select_subgraph(model, conditions, target, data, *, lam=0.05, fit_tol=1e-3,
     -------
     SubgraphResult
     """
+    _reject_equilibrated(model)
     T = model.T if T is None else float(T)
     target_name = _name(target)
     conds = [_pressures_by_name(c) for c in conditions]
@@ -478,10 +513,25 @@ def _select_milp(model, conds, target_name, data, T, solver_options):
     """
     import discopt.modeling as dm
 
+    from discopt.mkm.species import GasSpecies
+
     rxns = model.reactions
     target = model._by_name[target_name]
     kf, kr = rate_constants(model, T)
-    cap = {r: max(float(kf[r]), float(kr[r])) for r in rxns}
+    # capacity bound on |flux|: the one-way rate at the *largest* activity product
+    # over the conditions. Bounding by ``max(kf, kr)`` alone assumes every activity
+    # is <= 1, which is false for partial pressures > 1 — the true flux ``kf * P^order``
+    # then exceeds the cap and feasible mechanisms are wrongly rejected. Only *gas*
+    # activities can exceed 1 (coverages are <= 1), so raise just the gas
+    # stoichiometry to ``pmax`` — this keeps the bound tight (a loose big-M would
+    # ruin the MILP conditioning at high pressure).
+    pmax = max([max(list(c.values()) + [1.0]) for c in conds])
+
+    def gas_order(stoich):
+        return sum(c for sp, c in stoich.items() if isinstance(sp, GasSpecies))
+
+    cap = {r: float(kf[r]) * pmax ** gas_order(r.reactants)
+              + float(kr[r]) * pmax ** gas_order(r.products) for r in rxns}
 
     m = dm.Model(f"milp_{model.name}")
     z = {r: m.boolean(f"z_{j}") for j, r in enumerate(rxns)}
@@ -525,6 +575,7 @@ def pareto_subgraph(model, conditions, target, data, *, T=None, sigma=1e-6):
     of steps. Returns ``{n_steps: (misfit, [reaction names])}``. The knee, the
     smallest mechanism whose misfit is essentially zero, is the one to keep."""
     from itertools import combinations
+    _reject_equilibrated(model)
     T = model.T if T is None else float(T)
     target_name = _name(target)
     conds = [_pressures_by_name(c) for c in conditions]

@@ -44,12 +44,24 @@ def limiting_potential(mkm, T: float | None = None) -> float:
     For a reduction (ORR) the per-step free energy rises with ``U``, so the
     potential-determining step is the least favorable one; the overpotential is
     ``U_eq - U_L`` against the reaction's equilibrium potential.
+
+    Reduction-only: the ``min`` over ``-ΔG_i/(n_i F)`` assumes every step is
+    exergonic *below* its threshold (``n_i > 0``). For an oxidation step
+    (``n_i < 0``) the inequality flips and the concept does not apply, so this
+    raises rather than return a meaningless value.
     """
     T = mkm.T if T is None else float(T)
+    steps = _faradaic(mkm)
+    oxidation = [r for r in steps if r.n_electrons < 0]
+    if oxidation:
+        raise ValueError(
+            "limiting_potential assumes reduction steps (n_electrons > 0); the "
+            f"mechanism has oxidation step(s) {[r.name for r in oxidation]} with "
+            "n_electrons < 0, for which the exergonicity inequality flips and the "
+            "limiting-potential concept does not apply.")
     old = mkm.U
     mkm.U = 0.0
     try:
-        steps = _faradaic(mkm)
         thresholds = [-reaction_free_energy(mkm, r, T) / (r.n_electrons * mkm.F) for r in steps]
     finally:
         mkm.U = old

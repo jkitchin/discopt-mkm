@@ -26,17 +26,48 @@ def _safe(name: str) -> str:
     return re.sub(r"[^0-9a-zA-Z_]", "_", name)
 
 
+def _gas_ub(concentrations) -> float:
+    """Adaptive upper bound for a free gas-concentration variable.
+
+    A hard ``1e6`` cap silently clips legitimately large concentration scales
+    (e.g. a Pa-unit or high-pressure model whose feed already exceeds it). Scale
+    the bound off the reactor's supplied concentrations so it can never bind below
+    a physically supplied value, keeping ``1e6`` as a floor for the usual O(1) case.
+    """
+    supplied = [abs(float(v)) for v in concentrations]
+    return max(1e6, 1e3 * max(supplied, default=0.0))
+
+
 class Reactor:
     """Base reactor. Subclasses define gas treatment for steady/transient solves."""
 
     dynamic_gas = False
+    # Whether a (nontrivial) steady state exists for this reactor. A closed batch
+    # reactor has none, so :func:`~discopt.mkm.steady_state.solve_steady_state`
+    # rejects it (see :class:`Batch`).
+    supports_steady_state = True
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
         """Create and return the gas concentration expressions ``{gas: expr}``."""
         raise NotImplementedError
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
-        """Steady-state gas balance residual expressions (each constrained ``== 0``)."""
+    def nominal_gas(self, mkm: MicrokineticModel) -> dict:
+        """Nominal gas activities ``{gas_species: value}`` for warm starts.
+
+        Reactor-specific: the fixed pressures (differential), the inlet feed
+        (CSTR), or the bulk activities (mass-transfer / RDE). Empty by default.
+        Used to seed the numeric warm start for the log-coordinate solve so it is
+        not computed at an all-zero gas composition.
+        """
+        return {}
+
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
+        """Steady-state gas balance residual expressions (each constrained ``== 0``).
+
+        ``rate_cache`` (optional) is the shared ``{reaction: rate_of_progress}``
+        map from the model build; see :func:`discopt.mkm.kinetics.net_rate`.
+        """
         return []
 
     # transient hooks (defaults: gas is constant) ------------------------
@@ -75,6 +106,9 @@ class DifferentialReactor(Reactor):
         }
         return self._params
 
+    def nominal_gas(self, mkm: MicrokineticModel) -> dict:
+        return dict(self.pressures)
+
     def initial_concentration(self, g) -> float:
         return float(self.pressures.get(g, 0.0))
 
@@ -105,14 +139,20 @@ class CSTR(Reactor):
         self.cat = float(cat_density)
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
-        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=1e6) for g in mkm.gas_species}
+        ub = _gas_ub(self.inlet.values())
+        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=ub) for g in mkm.gas_species}
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
+    def nominal_gas(self, mkm: MicrokineticModel) -> dict:
+        return dict(self.inlet)
+
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
         res = []
         for g in mkm.gas_species:
             Cin = float(self.inlet.get(g, 0.0))
             rxn_term = self.cat * net_rate(
-                g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents
+                g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents,
+                rate_cache=rate_cache,
             )
             res.append((Cin - conc[g]) / self.tau + rxn_term)
         return res
@@ -176,21 +216,27 @@ class MassTransferReactor(Reactor):
         self.cat = float(cat_density)
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
+        ub = _gas_ub(self.bulk.values())
         out = {}
         for g in mkm.gas_species:
             if g in self.km:
-                out[g] = m.continuous(f"Cs_{_safe(g.name)}", lb=0.0, ub=1e6)
+                out[g] = m.continuous(f"Cs_{_safe(g.name)}", lb=0.0, ub=ub)
             else:
                 out[g] = m.parameter(f"Cb_{_safe(g.name)}", float(self.bulk.get(g, 0.0)))
         return out
 
-    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None) -> list:
+    def nominal_gas(self, mkm: MicrokineticModel) -> dict:
+        return dict(self.bulk)
+
+    def gas_residuals(self, conc, theta, free_cov, T_param, mkm: MicrokineticModel, extents=None,
+                      rate_cache=None) -> list:
         res = []
         for g in mkm.gas_species:
             if g in self.km:
                 Cb = float(self.bulk.get(g, 0.0))
                 rxn_term = self.cat * net_rate(
-                    g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents
+                    g, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref, extents,
+                    rate_cache=rate_cache,
                 )
                 res.append(float(self.km[g]) * (Cb - conc[g]) + rxn_term)
         return res
@@ -245,17 +291,24 @@ class Batch(Reactor):
     Gas concentrations evolve by reaction alone::
 
         dC_g/dt = cat_density * sum_j nu_ij r_j
+
+    A closed batch reactor has no nontrivial steady state (the only steady state
+    is complete equilibrium / consumption), so
+    :func:`~discopt.mkm.steady_state.solve_steady_state` rejects it; integrate it
+    in time with :func:`~discopt.mkm.transient.solve_transient` instead.
     """
 
     dynamic_gas = True
+    supports_steady_state = False
 
     def __init__(self, initial: dict, cat_density: float = 1.0):
         self.initial = dict(initial)
         self.cat = float(cat_density)
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
-        # batch has no nontrivial steady state; provided for API symmetry
-        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=1e6) for g in mkm.gas_species}
+        # only reached by the transient builder; batch has no steady-state solve.
+        ub = _gas_ub(self.initial.values())
+        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=ub) for g in mkm.gas_species}
 
     def initial_concentration(self, g) -> float:
         return float(self.initial.get(g, 0.0))

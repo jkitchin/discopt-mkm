@@ -55,7 +55,16 @@ def k_reverse(rxn: Reaction, T_expr, R: float, Tref: float, theta=None):
     """
     if rxn.irreversible:
         return 0.0
-    keq = rxn.Keq_param if rxn.explicit_rate else K_eq(rxn, T_expr, R, Tref, theta)
+    if rxn.explicit_rate:
+        # explicit K_eq is the *bare* (U = 0) constant; for a faradaic step the
+        # effective equilibrium constant carries the full n F U shift so that the
+        # derived reverse rate picks up the complementary (1 - beta) Butler-Volmer
+        # factor (detailed balance k_f / k_r = K_eq(U); mirrors numeric.py:69).
+        keq = rxn.Keq_param
+        if getattr(rxn, "is_electrochemical", False) and rxn._U_param is not None:
+            keq = keq * dm.exp(-ec_shift(rxn) / (R * T_expr))
+    else:
+        keq = K_eq(rxn, T_expr, R, Tref, theta)
     return k_forward(rxn, T_expr, R, theta) / keq
 
 
@@ -93,7 +102,14 @@ def equilibrium_residual(rxn: Reaction, conc: dict, theta: dict, free_cov: dict,
     constants), so it carries no huge-number cancellation — that is the whole
     numerical point of the quasi-equilibrium approximation.
     """
-    keq = rxn.Keq_param if rxn.Keq is not None else K_eq(rxn, T_expr, R, Tref, theta)
+    if rxn.Keq is not None:
+        # explicit K_eq: shift by the full n F U for a faradaic equilibrated step
+        # so the equilibrium coverages respond to the electrode potential.
+        keq = rxn.Keq_param
+        if getattr(rxn, "is_electrochemical", False) and rxn._U_param is not None:
+            keq = keq * dm.exp(-ec_shift(rxn) / (R * T_expr))
+    else:
+        keq = K_eq(rxn, T_expr, R, Tref, theta)
     return _mass_action(rxn.products, conc, theta, free_cov) - keq * _mass_action(
         rxn.reactants, conc, theta, free_cov
     )
@@ -119,14 +135,31 @@ def rate_of_progress(
 
 
 def net_rate(
-    sp: Species, reactions, conc: dict, theta: dict, free_cov: dict, T_expr, R: float, Tref: float, extents=None
+    sp: Species, reactions, conc: dict, theta: dict, free_cov: dict, T_expr, R: float, Tref: float,
+    extents=None, rate_cache: dict | None = None,
 ):
-    """Net production rate of a species ``R_i = sum_j nu_ij r_j``."""
+    """Net production rate of a species ``R_i = sum_j nu_ij r_j``.
+
+    ``rate_cache`` (optional) is a ``{reaction: rate_of_progress_expr}`` map built
+    once per model build and shared across every species balance. Passing it makes
+    each reaction's rate-of-progress subtree (its ``k_forward``/``k_reverse``/
+    ``K_eq``/thermo expression) be built exactly once and *reused* across all the
+    adsorbate and gas balances it appears in, instead of rebuilt per species. The
+    resulting expression is identical — the cached rate objects are made from the
+    same shared ``theta``/``conc``/parameter leaves the per-species build would
+    use — so the solve and degree-of-rate-control results are unchanged; only the
+    expression-graph size (and JAX compile time) shrinks. When ``rate_cache`` is
+    ``None`` the rate is built inline exactly as before.
+    """
     terms = []
     for rxn in reactions:
         nu = rxn.net_stoich().get(sp, 0.0)
         if nu != 0.0:
-            terms.append(nu * rate_of_progress(rxn, conc, theta, free_cov, T_expr, R, Tref, extents))
+            if rate_cache is not None:
+                rop = rate_cache[rxn]
+            else:
+                rop = rate_of_progress(rxn, conc, theta, free_cov, T_expr, R, Tref, extents)
+            terms.append(nu * rop)
     if not terms:
         return 0.0
     return dm.sum(terms)
