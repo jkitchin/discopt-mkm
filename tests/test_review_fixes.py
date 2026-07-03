@@ -443,3 +443,260 @@ def test_nonisothermal_solve_temperature_is_physical():
     assert sol.status == "optimal"
     T = sol.temperature()
     assert 500.0 < T < 2000.0  # rose above the feed, stayed physical (not ~10 K)
+
+
+# ==========================================================================
+# Completeness-gap fixes (REVIEW.md C1-C12; C5 is a documented limitation).
+# ==========================================================================
+
+_HER_SPEC = {
+    "name": "her", "T": 298.0, "R": R, "U": -0.30, "F": F,
+    "sites": [{"name": "*", "density": 1.0}],
+    "gas": [{"name": "Hp", "H": 0.0, "S": 0.0, "composition": {"H": 1}},
+            {"name": "H2", "H": 0.0, "S": 0.0, "composition": {"H": 2}}],
+    "adsorbates": [{"name": "H*", "site": "*", "H": -0.10, "S": 0.0, "composition": {"H": 1}}],
+    "reactions": [
+        {"equation": "Hp + * -> H*", "A": 1e2, "Ea": 0.30, "n_electrons": 1, "beta": 0.5,
+         "irreversible": True},
+        {"equation": "2 H* -> H2 + 2 *", "A": 1e10, "Ea": 0.20}],
+    "reactor": {"type": "differential", "pressures": {"Hp": 1.0, "H2": 1e-3}},
+}
+
+
+def _orr_spec():
+    from discopt.mkm.electrochem import orr_4e
+    from discopt.mkm.spec import to_spec
+
+    m, reactor = orr_4e(descriptor=0.9)
+    return to_spec(m, reactor)
+
+
+# --- C1: electrochemistry is reachable from the agent / MCP surface ----------
+def test_agent_current_returns_finite_number():
+    from discopt.mkm import agent
+
+    out = agent.current(_HER_SPEC)
+    assert np.isfinite(out["current"]) and out["current"] > 0.0
+    assert out["U"] == pytest.approx(-0.30)
+    assert out["status"] == "optimal"
+
+
+def test_agent_che_diagram_structure_and_limiting_potential():
+    from discopt.mkm import agent
+
+    che = agent.che_diagram(_orr_spec())
+    # 4 faradaic steps -> 4 labels/ΔG and an (n+1)-point cumulative profile from 0
+    assert len(che["steps"]) == 4
+    assert len(che["delta_g"]) == 4
+    assert len(che["cumulative"]) == 5
+    assert che["cumulative"][0] == 0.0
+    assert all(isinstance(x, float) for x in che["delta_g"])
+    import json
+
+    json.dumps(che)  # JSON-serializable
+    assert agent.limiting_potential(_orr_spec())["limiting_potential"] == pytest.approx(0.82, abs=1e-6)
+
+
+def test_agent_electrochem_requires_faradaic_steps():
+    from discopt.mkm import agent
+
+    from discopt.mkm.examples import co_oxidation
+    from discopt.mkm.spec import to_spec
+
+    m, _ = co_oxidation(500.0)
+    spec = to_spec(m, mk.DifferentialReactor({m._by_name["CO"]: 1.0, m._by_name["O2"]: 0.5}))
+    with pytest.raises(ValueError, match="electrochemical"):
+        agent.current(spec)
+
+
+def test_mcp_registers_electrochemistry_tools():
+    import asyncio
+
+    from discopt.mkm import mcp_server
+
+    tools = asyncio.new_event_loop().run_until_complete(mcp_server.mcp.list_tools())
+    names = {t.name for t in tools}
+    assert {"current", "tafel_slope", "che_diagram", "limiting_potential"} <= names
+
+
+# --- C2: MCP tools mirror the agent-function arguments ------------------------
+def test_mcp_tools_expose_method_and_coordinates():
+    import inspect
+
+    from discopt.mkm import agent, mcp_server
+
+    # agent functions have the params the tools must forward
+    assert "method" in inspect.signature(agent.solve).parameters
+    assert "coordinates" in inspect.signature(agent.report).parameters
+    # and the MCP tools now expose them too
+    assert "method" in inspect.signature(mcp_server.solve).parameters
+    assert "coordinates" in inspect.signature(mcp_server.report).parameters
+
+
+# --- C3: analyze records why apparent kinetics were skipped (CSTR) -----------
+def test_analyze_cstr_records_apparent_kinetics_note():
+    from discopt.mkm import agent
+
+    spec = {
+        "name": "cstr", "T": 500.0, "R": R,
+        "sites": [{"name": "*", "density": 1.0}],
+        "gas": [{"name": "A", "H": 0.0, "S": 0.001, "composition": {"A": 1}},
+                {"name": "B", "H": -1.0, "S": 0.001, "composition": {"B": 1}}],
+        "adsorbates": [{"name": "A*", "site": "*", "H": -0.3, "S": 0.001, "composition": {"A": 1}}],
+        "reactions": [{"equation": "A + * <=> A*", "A": 1e5, "Ea": 0.0},
+                      {"equation": "A* -> B + *", "A": 1e5, "Ea": 0.4, "irreversible": True}],
+        "reactor": {"type": "cstr", "inlet": {"A": 1.0, "B": 0.0}, "tau": 1.0},
+    }
+    out = agent.analyze(spec, target="B")
+    # apparent kinetics are undefined for a CSTR; a note explains it rather than
+    # the keys silently vanishing.
+    assert "apparent_orders" not in out
+    assert "apparent_kinetics_note" in out and out["apparent_kinetics_note"]
+
+
+# --- C4: alpha with no interactions warns (it would otherwise be inert) -------
+def test_alpha_without_interactions_warns():
+    m = mk.Model("bep", T=500.0, R=R, Tref=298.15)
+    s = m.site("*", density=1.0)
+    A = m.gas("A", H=0.0, S=0.001)
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.001)
+    m.step(A + s >> As, A=1e5, Ea=0.2, alpha=0.5)
+    with pytest.warns(UserWarning, match="alpha"):
+        mk.solve_steady_state(m, mk.DifferentialReactor({A: 1.0}))
+
+
+# --- C6: fit warm-start knobs are wired; log lb<=0 is a clear error -----------
+def _explicit_fit_setup():
+    def model(temp=500.0):
+        m = mk.Model("c6", T=temp, R=R, Tref=298.15)
+        s = m.site("s", density=1.0)
+        A = m.gas("A", H=0.0, S=0.0)
+        B = m.gas("B", H=-1.0, S=0.0)
+        As = m.adsorbate("A*", site=s, H=-0.3, S=0.0)
+        m.step(A + s >> As, kf=5.0, Keq=10.0, name="ads")
+        surf = m.step(As >> B + s, A=1e3, Ea=0.3, name="surf")
+        return m, A, B, As, surf
+
+    TS = [480.0, 500.0, 520.0]
+    data = []
+    for temp in TS:
+        mt, At, Bt, _, _ = model(temp)
+        data.append(mk.solve_steady_state(mt, mk.DifferentialReactor({At: 1.0, Bt: 0.0})).production_rate(Bt))
+    m, A, B, As, surf = model(500.0)
+    obs = [mk.Observation(response=B, value=v, T=temp, pressures={A: 1.0, B: 0.0}, sigma=0.01,
+                          theta0={As: 0.2}) for temp, v in zip(TS, data)]
+    return m, A, B, As, surf, obs
+
+
+def test_fit_theta0_warm_start_is_wired():
+    # Observation.theta0 warm-starts each condition's coverage variables (adsorbate
+    # + free-site, completed from the site balance) via the estimation solve's
+    # initial_solution — previously it was read by nothing.
+    from discopt.mkm.estimate import _MKMExperiment
+
+    m, A, B, As, surf, obs = _explicit_fit_setup()  # each obs carries theta0={As: 0.2}
+    fit = [mk.FitParam(surf, "A", lb=1e2, ub=1e4, init=5e2),
+           mk.FitParam(surf, "Ea", lb=0.05, ub=0.6, init=0.2)]
+    exp = _MKMExperiment(m, obs, fit)
+    exp.create_model()
+    # one warm-started coverage var + one free-site var per observation
+    assert len(exp._initial_solution) == len(obs) * 2
+    assert init_val_for(exp, f"th0_{As.name.replace('*', '_')}") == pytest.approx(0.2)
+    res = mk.fit_kinetics(m, obs, fit)
+    Ea_key = next(k for k in res.parameters if k.startswith("Ea_"))
+    assert res.parameters[Ea_key] == pytest.approx(0.3, abs=2e-2)
+
+
+def init_val_for(exp, varname):
+    for v, val in exp._initial_solution.items():
+        if v.name == varname:
+            return val
+    raise KeyError(varname)
+
+
+def test_fit_log_param_nonpositive_lb_raises():
+    m, A, B, As, surf, obs = _explicit_fit_setup()
+    fit = [mk.FitParam(surf, "A", lb=0.0, ub=1e4)]  # A is fit in log space by default
+    with pytest.raises(ValueError, match="log"):
+        mk.fit_kinetics(m, obs, fit)
+
+
+# --- C7: limiting potential / volcano raise for an oxidation mechanism --------
+def test_limiting_potential_rejects_oxidation():
+    from discopt.mkm.electrochem import limiting_potential, optimize_descriptor
+
+    m = mk.Model("ox", T=298.0, R=R, U=0.0, F=F)
+    s = m.site("*", density=1.0)
+    X = m.gas("X", H=0.0, S=0.0)
+    Xs = m.adsorbate("X*", site=s, H=-0.2, S=0.0)
+    m.step(Xs >> X + s, A=1e4, Ea=0.2, n_electrons=-1, beta=0.5)  # oxidation, n<0
+    with pytest.raises(ValueError, match="oxidation"):
+        limiting_potential(m)
+    with pytest.raises(ValueError, match="oxidation"):
+        optimize_descriptor([(-1.0, 1.0)], [-1], bounds=(0.0, 1.0))
+
+
+# --- C8: the electrochem package documents its two sign conventions ----------
+def test_electrochem_documents_sign_conventions():
+    import discopt.mkm.electrochem as ec
+
+    doc = ec.__doc__.lower()
+    assert "sign convention" in doc
+    assert "reduction is positive" in doc and "cathodic" in doc
+
+
+# --- C9: HTML render shows n_electrons / beta and the potential U ------------
+def test_mechanism_html_shows_electrochemistry():
+    from discopt.mkm.electrochem import orr_4e
+
+    m, _ = orr_4e(descriptor=0.9)
+    html = m.to_html()
+    assert "n<sub>e</sub>" in html      # electron count on the faradaic steps
+    assert "&beta;" in html             # transfer coefficient
+    assert f"U={m.U:g}" in html         # potential in the title
+
+
+# --- C10: half-integer routes are reported as fractions, not int-rounded -----
+def test_route_stoichiometric_numbers_not_int_rounded():
+    from discopt.mkm import agent
+
+    # X* is produced 3-per-turnover by step 1 and consumed 2-per-turnover by step 2,
+    # so the route stoichiometric numbers are in ratio 2:3 -> rationalized [1, 1.5].
+    spec = {
+        "name": "half", "T": 500.0, "R": R,
+        "sites": [{"name": "*", "density": 1.0}],
+        "gas": [{"name": "A", "composition": {"A": 1}}, {"name": "B", "composition": {"B": 1}}],
+        "adsorbates": [{"name": "X*", "site": "*", "composition": {"A": 1}}],
+        "reactions": [{"equation": "A + 3 * -> 3 X*", "A": 1e4, "Ea": 0.0},
+                      {"equation": "2 X* -> B + 2 *", "A": 1e4, "Ea": 0.0}],
+        "infer_composition": False,
+    }
+    routes = agent.structure(spec)["routes"]
+    assert len(routes) == 1
+    sigma = routes[0]["stoichiometric_numbers"]
+    assert sigma[0] == pytest.approx(1.0) and sigma[1] == pytest.approx(1.5)
+    assert sigma != [1, 2]  # int(round) would have corrupted the half-integer route
+
+
+# --- C11: a large CSTR feed is not clipped by a hard gas upper bound ----------
+def test_cstr_large_inlet_not_clipped():
+    m = mk.Model("big", T=500.0, R=R, Tref=298.15)
+    s = m.site("*", density=1.0)
+    Inert = m.gas("Inert", H=0.0, S=0.0)          # inert: steady C == inlet
+    A = m.gas("A", H=0.0, S=0.001)
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.001)
+    m.step(A + s >> As, A=1.0, Ea=0.0)
+    # inlet 2e6 exceeds the old hard-coded ub=1e6; the adaptive bound must not clip it.
+    sol = mk.solve_steady_state(m, mk.CSTR(inlet={Inert: 2e6, A: 1.0}, tau=1.0, cat_density=1e-6))
+    assert sol.gas_concentration(Inert) == pytest.approx(2e6, rel=1e-6)
+
+
+# --- C12: numeric callable-H path mirrors the symbolic contract (raises) ------
+def test_numeric_callable_H_without_theta_raises():
+    m = mk.Model("cbH", T=500.0, R=R)
+    s = m.site("*", density=1.0)
+    A = m.gas("A", H=0.0, S=0.0)
+    m.adsorbate("A*", site=s, H=lambda theta: -0.3, S=0.0)  # coverage-dependent H
+    m.step(A + s >> m._by_name["A*"], A=1e5, Ea=0.0)
+    with pytest.raises(ValueError, match="coverage-dependent H"):
+        numeric.rate_constants(m, 500.0)  # theta=None

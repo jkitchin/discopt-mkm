@@ -26,6 +26,18 @@ def _safe(name: str) -> str:
     return re.sub(r"[^0-9a-zA-Z_]", "_", name)
 
 
+def _gas_ub(concentrations) -> float:
+    """Adaptive upper bound for a free gas-concentration variable.
+
+    A hard ``1e6`` cap silently clips legitimately large concentration scales
+    (e.g. a Pa-unit or high-pressure model whose feed already exceeds it). Scale
+    the bound off the reactor's supplied concentrations so it can never bind below
+    a physically supplied value, keeping ``1e6`` as a floor for the usual O(1) case.
+    """
+    supplied = [abs(float(v)) for v in concentrations]
+    return max(1e6, 1e3 * max(supplied, default=0.0))
+
+
 class Reactor:
     """Base reactor. Subclasses define gas treatment for steady/transient solves."""
 
@@ -122,7 +134,8 @@ class CSTR(Reactor):
         self.cat = float(cat_density)
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
-        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=1e6) for g in mkm.gas_species}
+        ub = _gas_ub(self.inlet.values())
+        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=ub) for g in mkm.gas_species}
 
     def nominal_gas(self, mkm: MicrokineticModel) -> dict:
         return dict(self.inlet)
@@ -196,10 +209,11 @@ class MassTransferReactor(Reactor):
         self.cat = float(cat_density)
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
+        ub = _gas_ub(self.bulk.values())
         out = {}
         for g in mkm.gas_species:
             if g in self.km:
-                out[g] = m.continuous(f"Cs_{_safe(g.name)}", lb=0.0, ub=1e6)
+                out[g] = m.continuous(f"Cs_{_safe(g.name)}", lb=0.0, ub=ub)
             else:
                 out[g] = m.parameter(f"Cb_{_safe(g.name)}", float(self.bulk.get(g, 0.0)))
         return out
@@ -284,7 +298,8 @@ class Batch(Reactor):
 
     def create_gas(self, m, mkm: MicrokineticModel) -> dict:
         # only reached by the transient builder; batch has no steady-state solve.
-        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=1e6) for g in mkm.gas_species}
+        ub = _gas_ub(self.initial.values())
+        return {g: m.continuous(f"C_{_safe(g.name)}", lb=0.0, ub=ub) for g in mkm.gas_species}
 
     def initial_concentration(self, g) -> float:
         return float(self.initial.get(g, 0.0))

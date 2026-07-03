@@ -95,6 +95,13 @@ def reaction_routes(mkm, tol=1e-9):
     ``sigma`` is the per-reaction stoichiometric-number vector and ``overall`` is
     ``{gas_species: coefficient}`` of the resulting overall reaction (empty for a
     closed cycle).
+
+    NOTE: this is an *arbitrary* numerical basis of the route space (the null space
+    of the intermediate stoichiometry), analogous to :func:`conservation_laws` — the
+    *count* (number of independent routes) is meaningful, but an individual basis
+    vector can be a linear mixture of the true Horiuti-Temkin routes rather than a
+    single clean route, and its stoichiometric numbers may be fractional (they are
+    rationalized for display but not forced to integers). Do not round them.
     """
     nu, species, reactions = stoichiometric_matrix(mkm)
     if not reactions:

@@ -42,10 +42,14 @@ Per-reaction kinetics, choose one:
 - `kf`, `Keq` — explicit constants (e.g. from a DFT/SI table); reverse = `kf/Keq`.
 - `equilibrated: true` — quasi-equilibrium (give `Keq` or rely on thermo); for fast steps.
 - add `irreversible: true` to force `kr=0`; `alpha: <0..1>` for a BEP coverage-dependent barrier.
+  `alpha` only has an effect when lateral `interactions` are registered (that is the only source of the
+  coverage-dependent reaction energy the BEP shift acts on); set on a step with no interactions it is
+  inert and the model build emits a warning.
 - electrochemical step: `n_electrons: <int>` (electrons consumed forward; reduction positive) and
   `beta: <0..1>` (transfer coefficient). The free energy shifts by `n_electrons*F*U` and the forward
   barrier by `beta*n_electrons*F*U`; set model-level `U` (volts) and `F` (1.0 for eV/V, 96485 for J/mol).
-  Use `discopt.mkm.electrochem` for the current, Tafel slope, CHE diagram, and volcano.
+  The electrochemical observables are exposed as agent/MCP tools (see below); `discopt.mkm.electrochem`
+  has the underlying object-level functions plus the descriptor volcano and cyclic voltammetry.
 
 Optional: `interactions: [{a: "CO*", b: "O*", eps: 0.1}]` (lateral interactions),
 per-species `composition: {C: 1, O: 1}` (else inferred from the name),
@@ -69,6 +73,15 @@ surfaces these.
 - `apparent_kinetics(spec, target)` → apparent reaction orders + apparent activation energy.
 - `analyze(spec, target)` → all of the above in one call. **Prefer this.**
 - `report(spec, target, path=...)` → self-contained HTML report.
+
+Electrochemistry (specs with faradaic steps; set model-level `U`, `F`):
+- `current(spec)` → `{U, current, status}`, the faradaic current `j = F*sum(n_j*r_j)` per active site
+  (reduction positive). Solves the steady state first.
+- `tafel_slope(spec)` → `{U, tafel_slope, transfer_coefficient, status}`; evaluate in the Tafel region
+  (away from the equilibrium potential where `j` crosses zero, else it raises).
+- `che_diagram(spec, U=None)` → `{U, steps, delta_g, cumulative}`, the CHE free-energy diagram along the
+  faradaic steps (no solve needed).
+- `limiting_potential(spec)` → `{limiting_potential}` (reduction mechanisms only; raises for oxidation).
 
 `target` is a species name (a gas product); it defaults to a net-produced gas species.
 

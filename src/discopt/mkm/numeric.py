@@ -60,7 +60,12 @@ def rate_constants(mkm: MicrokineticModel, T: float, theta: dict | None = None):
 
     def baseH(sp):
         if callable(sp.H):
-            return float(sp.H(theta)) if theta is not None else 0.0
+            # mirror the symbolic contract (thermo.base_H): a coverage-dependent H
+            # cannot be evaluated without coverages, so raise rather than silently
+            # returning 0.0 (which would compute a different mechanism's rates).
+            if theta is None:
+                raise ValueError(f"species {sp.name!r} has a coverage-dependent H; theta is required")
+            return float(sp.H(theta))
         return sp.H
 
     kf, kr = {}, {}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 
 from discopt.mkm.reaction import Reaction
 from discopt.mkm.species import Adsorbate, GasSpecies, Site
@@ -218,6 +219,20 @@ class MicrokineticModel:
         for j, rxn in enumerate(self.reactions):
             rxn.alpha_param = None
             rxn.beta_param = None
+            # BEP (alpha) needs a coverage-dependent reaction energy to act on, which
+            # here comes only from lateral interactions; without them alpha is inert
+            # (the barrier shift delta_reaction_H is identically 0). Warn rather than
+            # silently ignore a set alpha. It is also inert on explicit-rate steps,
+            # whose forward barrier is not built from Ea.
+            if rxn.alpha and (not has_interactions or rxn.explicit_rate):
+                reason = ("no lateral interactions are registered" if not has_interactions
+                          else "it is an explicit-rate (kf/Keq) step")
+                warnings.warn(
+                    f"reaction {rxn.name!r} sets alpha={rxn.alpha:g} but {reason}, so the "
+                    "BEP coverage-dependent barrier has nothing to act on and is ignored. "
+                    "Register lateral interactions (Model.interaction) for alpha to take effect.",
+                    stacklevel=2,
+                )
             # electrochemical handles: the global potential and a per-step
             # transfer coefficient drive the CHE / Butler-Volmer shifts.
             if rxn.is_electrochemical:

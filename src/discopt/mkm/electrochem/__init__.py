@@ -7,6 +7,18 @@ by re-solving), exactly like temperature. Mark a step faradaic with
 ``m.step(..., n_electrons=1, beta=0.5)``; the reaction free energy then shifts by
 ``n_electrons * F * U`` (CHE) and the forward barrier by the Butler-Volmer
 fraction ``beta``, with the reverse rate following from detailed balance.
+
+Sign conventions (do not mix — the two current diagnostics use opposite signs):
+
+- :func:`current_density` / :func:`current_expr` (steady-state microkinetic
+  current) count electrons consumed in the *forward* direction as positive, so a
+  **reduction is positive** (ORR gives ``j > 0``) and an oxidation is negative.
+- :func:`cyclic_voltammogram` (transient voltammetry of a soluble couple) follows
+  the electrochemistry convention that a **cathodic (reduction) current is
+  negative**; its returned current is ``-n F A * (reduction flux)``.
+
+So a reduction that reads positive from ``current_density`` reads negative from
+``cyclic_voltammogram``; flip the sign before comparing the two.
 """
 
 from discopt.mkm.electrochem.analysis import (
