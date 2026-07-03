@@ -1,5 +1,7 @@
 # discopt-mkm
 
+[![tests](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml/badge.svg)](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml)
+
 A microkinetic modeling (MKM) plugin for the
 [discopt](https://pypi.org/project/discopt/) modeling language. Declare
 heterogeneous-catalysis species and reactions with an operator syntax; the
