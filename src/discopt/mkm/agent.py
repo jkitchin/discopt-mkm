@@ -32,7 +32,10 @@ def _solve(m, reactor, coordinates="linear", method="auto", active_tol=1e-3):
     if reactor is None:
         raise ValueError("the spec needs a 'reactor' section to solve")
     if coordinates == "log":
-        pressures = getattr(reactor, "pressures", {})
+        # reactor-aware nominal gas: fixed pressures (differential), inlet feed
+        # (CSTR), or bulk (mass-transfer) — not the all-zero gas a bare
+        # ``getattr(reactor, "pressures", {})`` would give a flow reactor.
+        pressures = reactor.nominal_gas(m)
         theta0, _ = numeric.steady_state_numeric(m, pressures, m.T, theta0={a: 1e-3 for a in m.adsorbates})
         return solve_steady_state(m, reactor, coordinates="log", theta0=theta0, active_tol=active_tol)
     return solve_steady_state(m, reactor, method=method, active_tol=active_tol)

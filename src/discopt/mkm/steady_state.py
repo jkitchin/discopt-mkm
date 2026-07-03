@@ -165,7 +165,15 @@ def solve_steady_state(
         linear coordinates) need ``active_tol`` below them for correct degree of
         rate control.
     """
+    if not reactor.supports_steady_state:
+        raise ValueError(
+            "batch reactor has no steady state; use solve_transient "
+            "(a closed batch reactor's only steady state is complete "
+            "consumption/equilibrium)"
+        )
     if coordinates == "log":
+        if energy is not None:
+            raise ValueError("energy balance is not supported with coordinates='log'")
         return _solve_log(
             mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver, solver_options
         )
@@ -214,6 +222,19 @@ def solve_steady_state(
         result = differentiable_solve_l3(
             m, active_tol=active_tol, nlp_solver=nlp_solver, solver_options=solver_options or {}
         )
+        if least_squares:
+            # a least-squares solve reports "optimal" at *any* local minimum of the
+            # residual norm; the objective here IS the residual sum of squares, so
+            # verify it is essentially zero rather than trusting the status. At a
+            # true steady state the net rates vanish, so this is an absolute check.
+            sse = result.objective
+            if sse is not None and float(sse) > 1e-9:
+                raise RuntimeError(
+                    f"least-squares steady-state solve converged to a non-steady point "
+                    f"(residual sum of squares {float(sse):.3e} >> 0); the reported "
+                    "'optimal' status is a local minimum of the residual norm, not a "
+                    "steady state. Try coordinates='log' with a warm start."
+                )
         return SteadyStateSolution(mkm, m, result, T_param, conc, theta, free_cov, reactor,
                                    extents, U_param=mkm._U_param)
 
@@ -264,29 +285,55 @@ def _solve_log(mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver
 
     # complete the warm start: free-site coverages from the site balance
     free0 = {s: max(1.0 - sum(theta0[a] for a in mkm.adsorbates_on(s)), 1e-300) for s in mkm.sites}
-    # numeric one-way forward magnitudes at the warm start -> residual scaling
+    # numeric one-way flux magnitudes at the warm start -> residual scaling.
+    # The nominal gas composition is reactor-specific (fixed pressures for a
+    # differential reactor, the inlet feed for a CSTR, the bulk for a
+    # mass-transfer / RDE cell); a bare ``getattr(reactor, "pressures", ...)``
+    # would read an all-zero gas for any flow reactor and center the search box
+    # at log(0).
     T = mkm.T
-    pressures = getattr(reactor, "pressures", {})
+    nominal = reactor.nominal_gas(mkm)
     kf, kr = numeric.rate_constants(mkm, T, theta0)
-    conc0 = {g: float(pressures.get(g, 0.0)) for g in mkm.gas_species}
+    conc0 = {g: float(nominal.get(g, 0.0)) for g in mkm.gas_species}
 
-    def fwd_mag(a):
+    def flux_mag(sp):
+        """Largest one-way (forward *or* reverse) flux touching ``sp`` at the warm
+        start. Including the reverse term is essential: for a reverse-dominated or
+        zero-reactant warm start the forward-only magnitude collapses to the
+        floor and the scaled residual becomes ~1e30-overscaled."""
         mags = [1e-30]
         for rxn in mkm.reactions:
-            nu = rxn.net_stoich().get(a, 0.0)
+            nu = rxn.net_stoich().get(sp, 0.0)
             if nu != 0.0:
                 f = kf[rxn] * numeric._prod(rxn.reactants, theta0, free0, conc0)
+                r = kr[rxn] * numeric._prod(rxn.products, theta0, free0, conc0)
                 mags.append(abs(nu) * abs(f))
+                mags.append(abs(nu) * abs(r))
         return max(mags)
+
+    fwd_mag = flux_mag  # backward-compatible alias
 
     m = dm.Model(f"{mkm.name}_ss_log")
     T_param = mkm.wire_parameters(m)
 
+    # coverages at/below this floor carry no trustworthy warm-start information
+    # (the numeric seed returned ~0, common for minor intermediates). Pinning
+    # them in a degenerate trust box at log(0) ≈ -690 excludes their true (small
+    # but non-zero) value and makes the NLP infeasible ("solver error"), so
+    # instead center the regularizer at the floor and let the variable range over
+    # the whole physical interval.
+    FLOOR = 1e-12
     z = {}
     theta = {}
     for a in mkm.adsorbates:
-        z0 = float(np.log(max(theta0[a], 1e-300)))
-        za = m.continuous(f"z_{_safe(a.name)}", lb=z0 - log_box, ub=min(0.0, z0 + log_box))
+        th0a = theta0[a]
+        if th0a > FLOOR:
+            z0 = float(np.log(th0a))
+            lb, ub = z0 - log_box, min(0.0, z0 + log_box)
+        else:
+            z0 = float(np.log(FLOOR))
+            lb, ub = float(np.log(1e-30)), 0.0
+        za = m.continuous(f"z_{_safe(a.name)}", lb=lb, ub=ub)
         z[a] = (za, z0)
         theta[a] = dm.exp(za)
     free_cov = {}
@@ -302,9 +349,19 @@ def _solve_log(mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver
     for a in mkm.adsorbates:
         r = net_rate(a, mkm.reactions, conc, theta, free_cov, T_param, mkm.R, mkm.Tref)
         if isinstance(r, Expression):
-            m.subject_to(r / fwd_mag(a) == 0.0, name=f"ss_{_safe(a.name)}")
+            m.subject_to(r / flux_mag(a) == 0.0, name=f"ss_{_safe(a.name)}")
     for s in mkm.sites:
         m.subject_to(site_balance_residual(mkm, s, theta, free_cov) == 0.0, name=f"site_{_safe(s.name)}")
+
+    # reactor gas balance, exactly as the linear path imposes it. Without this a
+    # flow reactor's (CSTR / mass-transfer / RDE) gas concentrations are free
+    # variables constrained by nothing and drift to their bound midpoints. Added
+    # unscaled (like the linear path) — the balance already mixes an O(1) flow /
+    # transport term with the reaction term, so its natural scale is O(1).
+    for k, gres in enumerate(
+        reactor.gas_residuals(conc, theta, free_cov, T_param, mkm, extents=None)
+    ):
+        m.subject_to(gres == 0.0, name=f"gas_{k}")
 
     # regularizer toward the warm start picks the physical root
     m.minimize(reg_weight * dm.sum([(za - z0) ** 2 for (za, z0) in z.values()]))

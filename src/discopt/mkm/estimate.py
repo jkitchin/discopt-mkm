@@ -35,8 +35,8 @@ from discopt.mkm.reaction import Reaction
 from discopt.mkm.species import GasSpecies, Species
 
 # attr -> the parameter-handle attribute the kinetics code reads
-_ATTR_TO_HANDLE = {"A": "A_param", "Ea": "Ea_param", "H": "H_param", "S": "S_param",
-                   "Cp": "Cp_param", "beta": "beta_param"}
+_ATTR_TO_HANDLE = {"A": "A_param", "Ea": "Ea_param", "kf": "kf_param", "Keq": "Keq_param",
+                   "H": "H_param", "S": "S_param", "Cp": "Cp_param", "beta": "beta_param"}
 
 
 @dataclass
@@ -150,6 +150,13 @@ class _MKMExperiment(Experiment):
 
     def create_model(self, **kwargs) -> ExperimentModel:
         mkm = self.mkm
+        if any(r.equilibrated for r in mkm.reactions):
+            # equilibrated steps have no rate law: they need an unknown extent
+            # variable plus an equilibrium-quotient constraint per observation
+            # (as the steady-state builder does). The estimation residuals here
+            # (net_rate without extents) cannot represent that, so refuse rather
+            # than silently fit a mechanism with those steps deleted.
+            raise NotImplementedError("fitting models with equilibrated steps is not supported")
         m = dm.Model(f"{mkm.name}_fit")
 
         # 1) fitted constants -> shared Variables; attach effective expression to the handle
@@ -167,9 +174,14 @@ class _MKMExperiment(Experiment):
                 setattr(fp.target, _ATTR_TO_HANDLE[fp.attr], var)
             unknown[name] = var
 
-        # 2) every non-fitted constant -> shared fixed Parameter
+        # 2) every non-fitted constant -> shared fixed Parameter. Reset the stale
+        # handles left on the shared Species/Reaction objects by any earlier solve
+        # (each fit builds a fresh discopt model), exactly as
+        # ``model.wire_parameters`` does — otherwise a previously-solved model
+        # mixes parameter handles from two different discopt models.
         fitted = {(id(fp.target), fp.attr) for fp in self.fit}
         for sp in mkm.species:
+            sp._interaction_params = []  # reset lateral-interaction handles
             if (id(sp), "H") not in fitted:
                 sp.H_param = m.parameter(f"H_{_safe(sp.name)}", sp.H)
             if (id(sp), "S") not in fitted:
@@ -180,13 +192,34 @@ class _MKMExperiment(Experiment):
                 else getattr(sp, "Cp_param", None)
             )
             sp.dG_param = None  # not used in estimation
+        # lateral interactions: one shared eps parameter per pair
+        has_interactions = bool(getattr(mkm, "_interactions", []))
+        for k, (a, b, eps) in enumerate(getattr(mkm, "_interactions", [])):
+            eps_param = m.parameter(f"eps_{k}", eps)
+            a._interaction_params.append((b, eps_param))
+            if a is not b:
+                b._interaction_params.append((a, eps_param))
         for j, rxn in enumerate(mkm.reactions):
-            if (id(rxn), "A") not in fitted:
-                rxn.A_param = m.parameter(f"A_{j}", rxn.A)
-            if (id(rxn), "Ea") not in fitted:
-                rxn.Ea_param = m.parameter(f"Ea_{j}", rxn.Ea)
-            if rxn.is_electrochemical and (id(rxn), "beta") not in fitted:
-                rxn.beta_param = m.parameter(f"beta_{j}", rxn.beta)
+            # reset per-reaction handles (fresh model each fit); keep any handle
+            # that step 1 already wired as a fitted Variable.
+            rxn.alpha_param = None
+            if (id(rxn), "beta") not in fitted:
+                rxn.beta_param = m.parameter(f"beta_{j}", rxn.beta) if rxn.is_electrochemical else None
+            if rxn.explicit_rate:
+                # explicit kf/Keq step (e.g. from a DFT/SI table): k_forward reads
+                # kf_param and k_reverse reads Keq_param, so both must be wired.
+                if (id(rxn), "kf") not in fitted:
+                    rxn.kf_param = m.parameter(f"kf_{j}", rxn.kf)
+                if not rxn.irreversible and (id(rxn), "Keq") not in fitted:
+                    rxn.Keq_param = m.parameter(f"Keq_{j}", rxn.Keq)
+            else:
+                if (id(rxn), "A") not in fitted:
+                    rxn.A_param = m.parameter(f"A_{j}", rxn.A)
+                if (id(rxn), "Ea") not in fitted:
+                    rxn.Ea_param = m.parameter(f"Ea_{j}", rxn.Ea)
+                # BEP coverage dependence of the barrier (only with interactions)
+                if has_interactions:
+                    rxn.alpha_param = m.parameter(f"alpha_{j}", rxn.alpha)
 
         # 3) one steady-state block + response per observation
         responses: dict = {}

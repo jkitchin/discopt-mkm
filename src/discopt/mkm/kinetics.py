@@ -55,7 +55,16 @@ def k_reverse(rxn: Reaction, T_expr, R: float, Tref: float, theta=None):
     """
     if rxn.irreversible:
         return 0.0
-    keq = rxn.Keq_param if rxn.explicit_rate else K_eq(rxn, T_expr, R, Tref, theta)
+    if rxn.explicit_rate:
+        # explicit K_eq is the *bare* (U = 0) constant; for a faradaic step the
+        # effective equilibrium constant carries the full n F U shift so that the
+        # derived reverse rate picks up the complementary (1 - beta) Butler-Volmer
+        # factor (detailed balance k_f / k_r = K_eq(U); mirrors numeric.py:69).
+        keq = rxn.Keq_param
+        if getattr(rxn, "is_electrochemical", False) and rxn._U_param is not None:
+            keq = keq * dm.exp(-ec_shift(rxn) / (R * T_expr))
+    else:
+        keq = K_eq(rxn, T_expr, R, Tref, theta)
     return k_forward(rxn, T_expr, R, theta) / keq
 
 
@@ -93,7 +102,14 @@ def equilibrium_residual(rxn: Reaction, conc: dict, theta: dict, free_cov: dict,
     constants), so it carries no huge-number cancellation — that is the whole
     numerical point of the quasi-equilibrium approximation.
     """
-    keq = rxn.Keq_param if rxn.Keq is not None else K_eq(rxn, T_expr, R, Tref, theta)
+    if rxn.Keq is not None:
+        # explicit K_eq: shift by the full n F U for a faradaic equilibrated step
+        # so the equilibrium coverages respond to the electrode potential.
+        keq = rxn.Keq_param
+        if getattr(rxn, "is_electrochemical", False) and rxn._U_param is not None:
+            keq = keq * dm.exp(-ec_shift(rxn) / (R * T_expr))
+    else:
+        keq = K_eq(rxn, T_expr, R, Tref, theta)
     return _mass_action(rxn.products, conc, theta, free_cov) - keq * _mass_action(
         rxn.reactants, conc, theta, free_cov
     )

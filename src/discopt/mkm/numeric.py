@@ -15,6 +15,24 @@ from scipy.optimize import fsolve
 from discopt.mkm.model import MicrokineticModel
 from discopt.mkm.species import Adsorbate, GasSpecies, Site
 
+_EQUILIBRATED_MSG = (
+    "mechanism has equilibrated (quasi-equilibrium) steps; the numeric evaluator "
+    "cannot model them"
+)
+
+
+def _reject_equilibrated(mkm):
+    """Guard the numeric paths against ``equilibrated`` steps.
+
+    ``rate_constants`` sets ``kf = kr = 0`` for an equilibrated step and imposes
+    no equilibrium relation, so a numeric solve/integration would silently be of
+    a *different* mechanism (those steps deleted). Solving the quasi-equilibrium
+    system requires the extent/equilibrium reformulation in the discopt
+    linear-coordinate path, not this evaluator.
+    """
+    if any(r.equilibrated for r in mkm.reactions):
+        raise ValueError(_EQUILIBRATED_MSG)
+
 
 def _interaction_map(mkm):
     """Numeric lateral-interaction map ``species -> [(partner, eps), ...]``."""
@@ -122,7 +140,15 @@ def steady_state_numeric(
     Free-site coverage on each site is determined by the site balance. Returns
     ``(theta, free)`` dicts. Provide ``theta0`` (adsorbate -> coverage) to seed
     the physical root for stiff/poisoning-prone mechanisms.
+
+    This is a *warm-start helper*: it seeds the differentiable log-coordinate
+    solve and validates it, so it tolerates a slightly imperfect root. It raises
+    :class:`RuntimeError` only when ``fsolve`` fails to converge *and* the
+    residual is large relative to the one-way fluxes (suggesting the seed landed
+    in a bad basin — try a different ``theta0``), or when a coverage comes back
+    meaningfully negative.
     """
+    _reject_equilibrated(mkm)
     ads = mkm.adsorbates
     conc = {g: float(pressures.get(g, 0.0)) for g in mkm.gas_species}
 
@@ -146,7 +172,37 @@ def steady_state_numeric(
     # slow-progress warning on stiff (near-equilibrium) systems.
     with np.errstate(all="ignore"), warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        x = fsolve(resid, x0, xtol=xtol)
+        x, infodict, ier, msg = fsolve(resid, x0, xtol=xtol, full_output=True)
+
+    # verify the solve instead of trusting a returned iterate. The steady-state
+    # residuals are *net* rates; scale the tolerance by the largest one-way flux
+    # so a genuine near-equilibrium cancellation (net ~ 1e-6 of a ~1e6 flux) is
+    # not flagged, but a non-converged basin is.
+    theta, free = unpack(x)
+    kf, kr = rate_constants(mkm, T, theta)
+    fluxes = [abs(kf[r] * _prod(r.reactants, theta, free, conc)) for r in mkm.reactions]
+    fluxes += [abs(kr[r] * _prod(r.products, theta, free, conc)) for r in mkm.reactions]
+    scale = max(fluxes + [1e-30])
+    resnorm = float(np.max(np.abs(np.asarray(resid(x), dtype=float)))) if n else 0.0
+    if ier != 1 and resnorm > 1e-6 * scale:
+        raise RuntimeError(
+            f"steady_state_numeric (warm-start helper) did not converge: fsolve "
+            f"ier={ier} ({str(msg).strip()}); residual {resnorm:.3e} vs one-way flux "
+            f"scale {scale:.3e}. Try a different theta0 seed."
+        )
+
+    # coverages must be physical: a *meaningfully* negative coverage means a
+    # spurious root. Tolerance is loose (1e-4) because this is only a warm start
+    # for stiff systems where fsolve returns ~1e-6 negative noise on genuinely
+    # near-zero coverages (e.g. water-gas shift); a real poisoned root is O(0.1)
+    # negative. Smaller negatives are clamped to 0.
+    negatives = [a.name for a in ads if theta[a] < -1e-4]
+    if negatives:
+        raise RuntimeError(
+            f"steady_state_numeric (warm-start helper) returned negative coverage(s) "
+            f"{negatives}; the seed landed on a non-physical root. Try a different theta0."
+        )
+    x = np.clip(np.asarray(x, dtype=float), 0.0, None)  # clamp tiny negatives to 0
     return unpack(x)
 
 
@@ -207,6 +263,7 @@ def integrate_coverages(mkm, conc, T, t_eval, theta0=None, dae=False, rtol=1e-8,
     one constant segment per call and carry the final coverages forward as the next
     ``theta0``.
     """
+    _reject_equilibrated(mkm)
     solve_ivp, is_pounce = _solve_ivp()
     ads, sites = mkm.adsorbates, mkm.sites
     conc_fn = conc if callable(conc) else (lambda t: conc)
@@ -251,6 +308,7 @@ def integrate_coverages(mkm, conc, T, t_eval, theta0=None, dae=False, rtol=1e-8,
 
 def turnover_frequency(mkm, species, theta, free, pressures, T) -> float:
     """Net production rate of ``species`` at the given coverages/conditions."""
+    _reject_equilibrated(mkm)
     kf, kr = rate_constants(mkm, T, theta)
     conc = {g: float(pressures.get(g, 0.0)) for g in mkm.gas_species}
     rops = rates_of_progress(mkm, kf, kr, theta, free, conc)
