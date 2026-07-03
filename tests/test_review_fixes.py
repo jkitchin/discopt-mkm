@@ -126,3 +126,320 @@ def test_reduce_by_drc_keeps_spectator_equilibrium_step():
     m.infer_composition()
     res = select.reduce_by_drc(m, [{"A": 1.0, "C": 1.0}], target="B", flux_tol=1e-6)
     assert "spectator" in set(res.kept)
+
+
+# --- H7: the estimator handles explicit-rate steps and rejects equilibrated --
+def _explicit_rate_fit_model(temp=500.0):
+    """A model mixing an explicit-rate adsorption step (kf/Keq) with an Arrhenius
+    surface step. k_forward reads kf_param and k_reverse reads Keq_param, so both
+    handles must be wired freshly on each fit's discopt model."""
+    m = mk.Model("h7", T=temp, R=8.617e-5, Tref=298.15)
+    s = m.site("s", density=1.0)
+    A = m.gas("A", H=0.0, S=0.0)
+    B = m.gas("B", H=-1.0, S=0.0)
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.0)
+    m.step(A + s >> As, kf=5.0, Keq=10.0, name="ads (explicit)")
+    surf = m.step(As >> B + s, A=1e3, Ea=0.3, name="surf (arrhenius)")
+    return m, A, B, As, surf
+
+
+def test_fit_with_explicit_rate_step_no_stale_handles():
+    # Solve the fit model ONCE first (populating handles from one discopt model),
+    # then fit (which builds a fresh discopt model). Pre-fix the explicit step's
+    # kf_param/Keq_param were never re-wired, so the residuals referenced stale
+    # handles from the previous model and the fit crashed.
+    TS = [480.0, 500.0, 520.0]
+    data = []
+    for temp in TS:
+        mt, At, Bt, _, _ = _explicit_rate_fit_model(temp)
+        sol = mk.solve_steady_state(mt, mk.DifferentialReactor({At: 1.0, Bt: 0.0}))
+        data.append(sol.production_rate(Bt))
+
+    m, A, B, As, surf = _explicit_rate_fit_model(500.0)
+    mk.solve_steady_state(m, mk.DifferentialReactor({A: 1.0, B: 0.0}))  # populate stale handles
+
+    obs = [mk.Observation(response=B, value=v, T=temp, pressures={A: 1.0, B: 0.0}, sigma=0.01)
+           for temp, v in zip(TS, data)]
+    fit = [mk.FitParam(surf, "A", lb=1e2, ub=1e4, init=5e2),
+           mk.FitParam(surf, "Ea", lb=0.05, ub=0.6, init=0.2)]
+    res = mk.fit_kinetics(m, obs, fit)
+
+    A_key = next(k for k in res.parameters if k.startswith("A_"))
+    Ea_key = next(k for k in res.parameters if k.startswith("Ea_"))
+    assert res.parameters[Ea_key] == pytest.approx(0.3, abs=2e-2)
+    assert res.parameters[A_key] == pytest.approx(1e3, rel=0.2)
+
+
+def test_fit_equilibrated_step_raises():
+    # Fitting a mechanism with an equilibrated step must raise clearly rather than
+    # silently fit a mechanism with that step deleted (its rate law is dropped).
+    m = mk.Model("h7eq", T=500.0, R=8.617e-5)
+    s = m.site("s", density=1.0)
+    A = m.gas("A", H=0.0, S=0.0)
+    B = m.gas("B", H=-1.0, S=0.0)
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.0)
+    m.step(A + s >> As, Keq=5.0, equilibrated=True)
+    surf = m.step(As >> B + s, A=1e3, Ea=0.3)
+
+    obs = [mk.Observation(response=B, value=1.0, T=500.0, pressures={A: 1.0, B: 0.0})]
+    fit = [mk.FitParam(surf, "A", lb=1e2, ub=1e4, init=5e2)]
+    with pytest.raises(NotImplementedError, match="equilibrated"):
+        mk.fit_kinetics(m, obs, fit)
+
+
+# --- M5: the numeric warm-start helper reports a spurious (negative) root -----
+def test_numeric_warm_start_rejects_spurious_negative_root():
+    # From a bad seed CO oxidation's fsolve converges (ier=1) to a non-physical
+    # root with O* < 0; the helper must raise rather than return it silently.
+    m, _ = co_oxidation(500.0)
+    CO, O2 = m._by_name["CO"], m._by_name["O2"]
+    with pytest.raises(RuntimeError):
+        numeric.steady_state_numeric(m, {CO: 1.0, O2: 0.5}, m.T,
+                                     theta0={a: 0.1 for a in m.adsorbates})
+
+
+# --- M1: re-solving a model must not invalidate an earlier solution ----------
+def test_earlier_solution_survives_a_resolve():
+    # Two solves of the SAME model at different T rewire the shared parameter
+    # handles on the Species/Reaction objects. Pre-fix, the first solution rebuilt
+    # its rate expressions lazily from those (now-stale) handles and raised
+    # "Parameter 'A_2' not found in model". The solution must snapshot what it
+    # needs at construction time and stay evaluable.
+    from discopt.mkm.analysis import degree_of_rate_control
+
+    m, _ = co_oxidation(500.0)
+    CO, O2, CO2, COs = (m._by_name[n] for n in ("CO", "O2", "CO2", "CO*"))
+    reactor = mk.DifferentialReactor({CO: 1.0, O2: 0.5, CO2: 0.0})
+
+    sol1 = mk.solve_steady_state(m, reactor)
+    r1 = sol1.production_rate(CO2)
+
+    # a fresh single solve at T=500 for the reference value
+    mf, _ = co_oxidation(500.0)
+    ref = mk.solve_steady_state(
+        mf, mk.DifferentialReactor({mf._by_name["CO"]: 1.0, mf._by_name["O2"]: 0.5,
+                                    mf._by_name["CO2"]: 0.0})
+    ).production_rate(mf._by_name["CO2"])
+    assert r1 == pytest.approx(ref, rel=1e-9)
+
+    # re-solve the ORIGINAL model at a different T (rewires the shared handles)
+    m.T = 520.0
+    mk.solve_steady_state(m, reactor)
+
+    # sol1's accessors must still work and give the original (T=500) answers
+    assert sol1.production_rate(CO2) == pytest.approx(ref, rel=1e-9)
+    assert 0.0 <= sol1.coverage(COs) <= 1.0
+    X = degree_of_rate_control(sol1, species=CO2)
+    assert sum(X.values()) == pytest.approx(1.0, abs=1e-3)
+    sol1.to_dict()  # must not raise
+
+
+# --- M2: the reaction parser must not split a trailing '+' in a species name -
+def test_parser_preserves_ionic_species():
+    from discopt.mkm.spec import parse_equation
+
+    r, p, irr = parse_equation("O2 + H+ + * -> OOH*")
+    assert "H+" in r and "H" not in r
+    assert r == {"O2": 1.0, "H+": 1.0, "*": 1.0}
+    assert p == {"OOH*": 1.0} and irr is True
+    # an existing spaced equation still parses correctly
+    r2, p2, irr2 = parse_equation("CO + 2 * <=> 2 CO*")
+    assert r2 == {"CO": 1.0, "*": 2.0} and p2 == {"CO*": 2.0} and irr2 is False
+
+
+# --- M3: energy-diagram TS carries the electrochemical barrier shift ----------
+def test_energy_diagram_electrochemical_ts_shift():
+    from discopt.mkm import viz
+
+    U = 0.5
+    m = mk.Model("ec_diagram", T=298.0, R=R, U=U, F=F)
+    s = m.site("*", density=1.0)
+    Hp = m.gas("H+", H=0.0, S=0.0, composition={"H": 1})
+    Hs = m.adsorbate("H*", site=s, H=-0.3, S=0.0, composition={"H": 1})
+    rxn = m.step(Hp + s >> Hs, A=1e9, Ea=0.2, n_electrons=1, beta=0.5)
+
+    states, ts = viz.energy_profile(m)
+    expected = states[0] + rxn.Ea + rxn.beta * rxn.n_electrons * m.F * m.U
+    assert ts[0] == pytest.approx(expected)
+    # the shifted barrier sits above the (potential-shifted) product state
+    assert ts[0] > states[1]
+
+    ax = viz.energy_diagram(m)  # exercises the drawing path
+    import matplotlib.pyplot as plt
+
+    plt.close(ax.figure)
+
+
+# --- M4: energy balance uses the thermo-model Cp (not a zero fallback) --------
+def _nasa7_const_cp(H, S, Cp=30.0, Rg=8.314, Tref=298.15):
+    a1 = Cp / Rg
+    a6 = (H - Cp * Tref) / Rg
+    a7 = (S - Cp * np.log(Tref)) / Rg
+    return mk.NASA7([a1, 0.0, 0.0, 0.0, 0.0, a6, a7])
+
+
+def _nasa7_energy_cstr(T=500.0):
+    from discopt.mkm.energy import EnergyBalance
+
+    m = mk.Model("nasa_energy", T=T, R=8.314, Tref=298.15)
+    s = m.site("cat", density=1.0)
+    A = m.gas("A", thermo=_nasa7_const_cp(0.0, 0.0))
+    B = m.gas("B", thermo=_nasa7_const_cp(-12000.0, 0.0))
+    m.adsorbate("A*", site=s, H=-6000.0, S=0.0, Cp=30.0)
+    m.step(A + s >> m._by_name["A*"], A=1e2, Ea=0.0, name="ads")
+    m.step(m._by_name["A*"] >> B + s, A=1e7, Ea=60000.0, name="surf")
+    reactor = mk.CSTR(inlet={A: 1.0, B: 0.0}, tau=1.0, cat_density=1.0)
+    return m, reactor, EnergyBalance(T_in=T), A
+
+
+def test_energy_balance_uses_thermo_cp():
+    # The gas heat capacity lives in a NASA7 model (Cp_param is None). Pre-fix the
+    # inlet-stream cp_in fell back to the constant g.Cp (0), degenerating the
+    # balance to q + Q = 0 (unphysical T). It must take Cp from the thermo model.
+    m, reactor, energy, A = _nasa7_energy_cstr(500.0)
+    # the thermo Cp itself is nonzero (pre-fix the energy path used the constant
+    # g.Cp == 0 here) and the inlet-stream mixture heat capacity is positive
+    assert A.thermo.Cp(500.0, m.R) == pytest.approx(30.0, rel=1e-6)
+    cp_in = sum(g.thermo.Cp(500.0, m.R) for g in m.gas_species if g.thermo is not None)
+    assert cp_in > 0.0
+
+    sol = mk.solve_steady_state(m, reactor, energy=energy)
+    T = sol.temperature()
+    conv = 1.0 - sol.gas_concentration(A)
+    assert T > 500.0  # exothermic: temperature rises (not the degenerate result)
+
+    # self-consistent: an isothermal solve at the solved T gives the same conversion
+    m2, r2, _, A2 = _nasa7_energy_cstr(T)
+    conv2 = 1.0 - mk.solve_steady_state(m2, r2).gas_concentration(A2)
+    assert conv == pytest.approx(conv2, abs=2e-3)
+
+
+def test_energy_balance_rejects_equilibrated_step():
+    # heat_release_rate needs each step's rate of progress; an equilibrated step's
+    # rate is an unknown extent, so the energy path must raise clearly.
+    from discopt.mkm.energy import EnergyBalance
+
+    m = mk.Model("eq_energy", T=500.0, R=8.314, Tref=298.15)
+    s = m.site("cat", density=1.0)
+    A = m.gas("A", H=0.0, S=0.0, Cp=30.0)
+    B = m.gas("B", H=-12000.0, S=0.0, Cp=30.0)
+    As = m.adsorbate("A*", site=s, H=-6000.0, S=0.0, Cp=30.0)
+    m.step(A + s >> As, Keq=5.0, equilibrated=True)
+    m.step(As >> B + s, A=1e7, Ea=60000.0)
+    reactor = mk.CSTR(inlet={A: 1.0, B: 0.0}, tau=1.0, cat_density=1.0)
+    with pytest.raises(NotImplementedError, match="equilibrated"):
+        mk.solve_steady_state(m, reactor, energy=EnergyBalance(T_in=500.0))
+
+
+# --- M7: the MILP capacity bound is pressure-aware ---------------------------
+def _eley_rideal_model(T=500.0):
+    m = mk.Model("er", T=T, R=8.617e-5, Tref=298.15)
+    s = m.site("*", density=1.0)
+    A = m.gas("A", H=0.0, S=0.001, composition={"A": 1})
+    P = m.gas("P", H=-1.0, S=0.001, composition={"A": 2})
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.001, composition={"A": 1})
+    m.step(A + s >> As, A=1e5, Ea=0.0, name="ads")
+    # Eley-Rideal step consumes gas A: its steady-state flux at P_A=10 is ~10x its
+    # bare kf, so a cap of max(kf, kr) (pre-fix) makes the true mechanism infeasible.
+    m.step(A + As >> P + s, A=2.0, Ea=0.0, irreversible=True, name="eley-rideal")
+    m.infer_composition()
+    return m, A, P
+
+
+def test_milp_selection_pressure_aware_cap():
+    m, A, P = _eley_rideal_model(500.0)
+    obs = mk.solve_steady_state(m, mk.DifferentialReactor({A: 10.0, P: 0.0})).production_rate(P)
+    assert obs > 2.0  # exceeds the bare kf of the Eley-Rideal step
+    res = mk.select_subgraph(m, [{"A": 10.0}], "P", [obs], engine="milp")
+    assert res.status == "optimal"
+    assert set(res.selected) == {"ads", "eley-rideal"}
+    assert res.misfit < 1e-6
+
+
+# --- M8: _drc_table returns None (not 0.0) when no solve yields sensitivities -
+def test_drc_table_none_when_all_solves_fail(monkeypatch):
+    from discopt.mkm import select
+
+    m = mk.Model("drc_none", T=500.0, R=8.617e-5, Tref=298.15)
+    s = m.site("*", density=1.0)
+    A = m.gas("A", H=0.0, S=0.001, composition={"A": 1})
+    B = m.gas("B", H=-1.0, S=0.001, composition={"B": 1})
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.001, composition={"A": 1})
+    m.step(A + s >> As, A=1e5, Ea=0.0, name="ads")
+    m.step(As >> B + s, A=1e5, Ea=0.4, irreversible=True, name="surf")
+    m.infer_composition()
+
+    def boom(*a, **k):
+        raise RuntimeError("forced failure")
+
+    monkeypatch.setattr(select, "solve_steady_state", boom)
+    table = select._drc_table(m, [{"A": 1.0}], "B", 500.0)
+    assert all(v is None for v in table.values())  # None, not a misleading 0.0
+
+
+# --- M9: spec validation rejects unknown keys and cross-field reactor misuse --
+def test_spec_rejects_unknown_keys():
+    from pydantic import ValidationError
+
+    from discopt.mkm.spec import ModelSpec, ReactionSpec
+
+    with pytest.raises(ValidationError):
+        ModelSpec(**{"reactons": []})           # typo for 'reactions'
+    with pytest.raises(ValidationError):
+        ReactionSpec(equation="A -> B", n_electron=1)  # typo for 'n_electrons'
+
+
+def test_reactor_cross_field_misuse_raises():
+    from discopt.mkm.spec import from_spec
+
+    base = {
+        "name": "x", "sites": [{"name": "*", "density": 1.0}],
+        "gas": [{"name": "A"}], "adsorbates": [{"name": "A*", "site": "*"}],
+        "reactions": [{"equation": "A + * <=> A*", "A": 1e3, "Ea": 0.0}],
+    }
+    # a CSTR given 'pressures' (which belongs to a differential reactor) is a
+    # silent all-zero feed pre-fix; it must raise a clear error now.
+    with pytest.raises(ValueError, match="cstr"):
+        from_spec({**base, "reactor": {"type": "cstr", "pressures": {"A": 1.0}}})
+    # a differential 'pressures' key naming an adsorbate rather than a gas
+    with pytest.raises(ValueError, match="gas"):
+        from_spec({**base, "reactor": {"type": "differential", "pressures": {"A*": 1.0}}})
+
+
+# --- M10: to_spec round-trips thermo models and the reactor type -------------
+def test_to_spec_roundtrips_thermo_and_reactor():
+    from discopt.mkm.spec import from_spec, to_spec
+
+    m = mk.Model("rt", T=450.0, R=8.314, Tref=298.15)
+    s = m.site("cat", density=1.0)
+    A = m.gas("A", thermo=_nasa7_const_cp(-5000.0, 10.0))
+    B = m.gas("B", H=-1.0, S=0.0)
+    As = m.adsorbate("A*", site=s, H=-0.3, S=0.0)
+    m.step(A + s >> As, A=1e3, Ea=0.0)
+    m.step(As >> B + s, A=1e3, Ea=0.3)
+    reactor = mk.CSTR(inlet={A: 1.0, B: 0.0}, tau=2.0, cat_density=0.5)
+
+    spec = to_spec(m, reactor)
+    assert spec["reactor"]["type"] == "cstr"
+    assert spec["gas"][0]["thermo"]["type"] == "nasa7"
+
+    m2, r2 = from_spec(spec)
+    from discopt.mkm.reactors import CSTR
+    from discopt.mkm.thermo_models import NASA7
+
+    assert isinstance(r2, CSTR) and r2.tau == 2.0
+    assert isinstance(m2._by_name["A"].thermo, NASA7)
+
+
+# --- M12: the non-isothermal steady solve starts at a physical temperature ---
+def test_nonisothermal_solve_temperature_is_physical():
+    # With R = 8.314 and Ea = 60 kJ/mol the Arrhenius factor underflows at the
+    # ~10 K start discopt's clip would otherwise pick; the scaled T variable starts
+    # near the inlet temperature so the solve lands on a physical steady state.
+    from discopt.mkm.examples import adiabatic_cstr
+
+    m, reactor, energy = adiabatic_cstr(T_in=500.0)
+    sol = mk.solve_steady_state(m, reactor, energy=energy)
+    assert sol.status == "optimal"
+    T = sol.temperature()
+    assert 500.0 < T < 2000.0  # rose above the feed, stayed physical (not ~10 K)

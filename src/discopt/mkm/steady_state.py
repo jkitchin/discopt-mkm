@@ -47,6 +47,38 @@ class SteadyStateSolution:
     reactor: Reactor
     extents: dict = None
     U_param: object = None   # electrode-potential handle (electrochemical models)
+    # Snapshots captured at construction time so this solution stays valid after
+    # the model is re-solved. ``wire_parameters`` overwrites the parameter handles
+    # stored on the shared ``Species``/``Reaction`` objects on every solve, so a
+    # rate expression rebuilt *later* from those live handles would reference a
+    # different discopt model and break (``Parameter 'A_2' not found in model``).
+    # We therefore build every rate-of-progress / production-rate expression and
+    # snapshot the rate-constant / free-energy handles now, while the handles
+    # still belong to *this* solution's model.
+    rop_exprs: dict = None
+    prod_exprs: dict = None
+    rate_constant_params: dict = None
+    dG_params: dict = None
+
+    def __post_init__(self):
+        self._capture_expressions()
+
+    def _capture_expressions(self) -> None:
+        """Eagerly build and store this solution's rate expressions and parameter
+        handles, decoupling it from later re-solves that rewire the shared objects."""
+        R, Tref = self.mkm.R, self.mkm.Tref
+        self.rop_exprs = {
+            rxn: rate_of_progress(rxn, self.conc, self.theta, self.free_cov,
+                                  self.T_param, R, Tref, self.extents)
+            for rxn in self.mkm.reactions
+        }
+        self.prod_exprs = {
+            sp: net_rate(sp, self.mkm.reactions, self.conc, self.theta, self.free_cov,
+                         self.T_param, R, Tref, self.extents)
+            for sp in self.mkm.species
+        }
+        self.rate_constant_params = {rxn: rxn.rate_constant_param() for rxn in self.mkm.reactions}
+        self.dG_params = {sp: sp.dG_param for sp in self.mkm.species}
 
     # -- convenience accessors -------------------------------------------
     @property
@@ -70,7 +102,13 @@ class SteadyStateSolution:
         return self._eval(self.conc[gas])
 
     def rate_of_progress_expr(self, rxn):
-        """discopt expression for reaction ``rxn``'s rate of progress at the solution."""
+        """discopt expression for reaction ``rxn``'s rate of progress at the solution.
+
+        Returns the snapshot captured at construction time (stable across later
+        re-solves); falls back to a fresh build only if the reaction is unknown.
+        """
+        if self.rop_exprs is not None and rxn in self.rop_exprs:
+            return self.rop_exprs[rxn]
         return rate_of_progress(
             rxn, self.conc, self.theta, self.free_cov, self.T_param, self.mkm.R, self.mkm.Tref,
             self.extents,
@@ -80,7 +118,13 @@ class SteadyStateSolution:
         return self._eval(self.rate_of_progress_expr(rxn))
 
     def production_rate_expr(self, species):
-        """discopt expression for the net production rate of ``species``."""
+        """discopt expression for the net production rate of ``species``.
+
+        Returns the snapshot captured at construction time (stable across later
+        re-solves); falls back to a fresh build only for an unknown species.
+        """
+        if self.prod_exprs is not None and species in self.prod_exprs:
+            return self.prod_exprs[species]
         return net_rate(
             species, self.mkm.reactions, self.conc, self.theta, self.free_cov,
             self.T_param, self.mkm.R, self.mkm.Tref, self.extents,
@@ -162,8 +206,12 @@ def solve_steady_state(
         At a physical MKM steady state no coverage is ever genuinely at a 0/1
         bound, so a *small* value avoids false positives. Increase only the
         rare case where a bound is truly active. Tiny coverages (e.g. ~1e-12 in
-        linear coordinates) need ``active_tol`` below them for correct degree of
-        rate control.
+        linear coordinates) fall *below* the default ``1e-3`` and are then flagged
+        as bound-active, which nulls or degrades their degree of rate control. For
+        such near-zero coverages either pass a smaller ``active_tol`` (below the
+        smallest physical coverage) or, better, solve in ``coordinates="log"``
+        with a warm start, where coverages are represented as ``exp(z)`` and are
+        never near the linear 0-bound.
     """
     if not reactor.supports_steady_state:
         raise ValueError(
@@ -181,8 +229,19 @@ def solve_steady_state(
     def build(least_squares: bool):
         m = dm.Model(f"{mkm.name}_ss")
         T_param = mkm.wire_parameters(m)
-        # non-isothermal: temperature becomes an unknown driven by an energy balance
-        T_expr = m.continuous("T_var", lb=1.0, ub=1e5) if energy is not None else T_param
+        # non-isothermal: temperature becomes an unknown driven by an energy
+        # balance. discopt's ``_safe_x0`` clips every variable's start to [-10, 10]
+        # in its *own* units, so a bare ``T_var`` in kelvin would begin near 10 K
+        # where Arrhenius factors underflow (numeric.py / transient.py / pfr.py all
+        # special-case this). We instead carry a dimensionless ``T / T_nom`` whose
+        # O(1) scale starts at a physical temperature: with the bounds below the
+        # clipped start lands a few times ``T_nom`` rather than at 10 K.
+        if energy is not None:
+            T_nom = float(getattr(energy, "T_in", 0.0)) or mkm.T
+            T_scaled = m.continuous("T_scaled", lb=1.0 / T_nom, ub=4.0)
+            T_expr = T_scaled * T_nom
+        else:
+            T_expr = T_param
         theta = {a: m.continuous(f"theta_{_safe(a.name)}", lb=0.0, ub=1.0) for a in mkm.adsorbates}
         free_cov = {s: m.continuous(f"thetafree_{_safe(s.name)}", lb=0.0, ub=1.0) for s in mkm.sites}
         conc = reactor.create_gas(m, mkm)
@@ -259,13 +318,24 @@ def _cstr_energy_residual(mkm, reactor, conc, theta, free_cov, T_expr, energy):
 
     if not hasattr(reactor, "inlet") or not hasattr(reactor, "tau"):
         raise ValueError("energy balance requires a CSTR reactor (inlet, tau)")
-    cp_in = dm.sum(
-        [
-            float(reactor.inlet.get(g, 0.0))
-            * (g.Cp_param if getattr(g, "Cp_param", None) is not None else g.Cp)
-            for g in mkm.gas_species
-        ]
-    )
+    # inlet-stream heat capacity. A species whose Cp lives in a temperature-
+    # dependent thermo model has ``Cp_param is None``; falling back to the constant
+    # ``g.Cp`` (0.0) there silently zeros the flow term and degenerates the balance
+    # to ``q + Q = 0`` (unphysical solved T). Take Cp from the thermo model instead,
+    # evaluated at the inlet temperature (the stream entering at ``T_in``).
+    cp_terms = []
+    for g in mkm.gas_species:
+        amount = float(reactor.inlet.get(g, 0.0))
+        if amount == 0.0:
+            continue
+        if getattr(g, "thermo", None) is not None:
+            cp = g.thermo.Cp(energy.T_in, mkm.R)
+        elif getattr(g, "Cp_param", None) is not None:
+            cp = g.Cp_param
+        else:
+            cp = g.Cp
+        cp_terms.append(amount * cp)
+    cp_in = dm.sum(cp_terms) if cp_terms else 0.0
     q = heat_release_rate(mkm, conc, theta, free_cov, T_expr, reactor.cat)
     return cp_in * (energy.T_in - T_expr) / reactor.tau + q + energy.Q
 

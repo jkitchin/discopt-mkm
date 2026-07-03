@@ -50,7 +50,14 @@ Per-reaction kinetics, choose one:
 Optional: `interactions: [{a: "CO*", b: "O*", eps: 0.1}]` (lateral interactions),
 per-species `composition: {C: 1, O: 1}` (else inferred from the name),
 per-species `thermo: {type: nasa7, low: [...], high: [...]}` or `{type: shomate, coeffs: [A..H]}`.
-Reactor types: `differential` (fixed `pressures`), `cstr` (`inlet`, `tau`, `cat_density`), `batch`.
+Reactor types: `differential` (fixed `pressures`), `cstr` (`inlet`, `tau`, `cat_density`), `batch`
+(`initial`). The reactor fields are type-specific and validated: a `differential` reactor takes
+`pressures` (gas species only), a `cstr` takes `inlet`, a `batch` takes `initial` — mixing them
+(e.g. a `cstr` with `pressures`) is a clear error, not a silent all-zero feed.
+
+Specs are strict: an unknown key anywhere (a typo like `reactons:` or `n_electron:`, or a field on
+the wrong object) is rejected with a validation error rather than silently dropped — `validate(spec)`
+surfaces these.
 
 ## Tools / functions
 
@@ -68,13 +75,18 @@ Reactor types: `differential` (fixed `pressures`), `cstr` (`inlet`, `tau`, `cat_
 ## Decision guide
 
 - **Reactor**: rate/DRC at fixed conditions → `differential`. Conversion with flow → `cstr`. Time
-  evolution → `batch` (use `solve_transient`, not these tools).
+  evolution → `batch` (use `solve_transient`, not these tools; a steady-state solve on a `batch`
+  reactor raises — a closed batch has no nontrivial steady state).
 - **coordinates**: default `"linear"`. Use `"log"` for stiff near-equilibrium mechanisms where
-  coverages span many orders of magnitude (e.g. water-gas shift) — `solve`/`analyze` auto-warm-start it.
+  coverages span many orders of magnitude (e.g. water-gas shift) — `solve`/`analyze` auto-warm-start
+  it (reactor-aware: the warm start uses the fixed pressures / CSTR inlet / bulk as appropriate, and
+  the flow-reactor gas balance is imposed, so `"log"` works with `cstr` too).
 - **Fast steps you want to assume equilibrated** → `equilibrated: true` (removes stiffness; only `Keq`
   needed). Those steps then report degree of rate control = 0 by construction.
-- If `degree_of_rate_control` returns `drc: null`, a coverage is pinned near 0/1; retry with
-  `coordinates="log"`.
+- If `degree_of_rate_control` returns `drc: null`, a coverage is pinned near 0/1 — often a tiny
+  coverage falling below the default `active_tol` (1e-3) in linear coordinates, which then reads as
+  bound-active. Retry with `coordinates="log"` (coverages are `exp(z)`, never near the linear
+  0-bound), which is the robust fix for tiny-coverage DRC.
 
 ## Units (important)
 

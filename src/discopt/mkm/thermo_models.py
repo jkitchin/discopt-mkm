@@ -33,6 +33,11 @@ class ThermoModel:
     def S(self, T, R: float, log: Callable):  # noqa: N802
         raise NotImplementedError
 
+    def Cp(self, T, R: float):  # noqa: N802
+        """Molar heat capacity ``Cp(T)`` (same energy units as ``H``). Used by the
+        non-isothermal energy balance for thermo-carrying species."""
+        raise NotImplementedError
+
     def g(self, T, R: float, Tref: float, log: Callable):
         return self.H(T, R, log) - T * self.S(T, R, log)
 
@@ -67,6 +72,10 @@ class NASA7(ThermoModel):
         a = self._a
         return R * (a[0] * log(T) + a[1] * T + a[2] * T**2 / 2 + a[3] * T**3 / 3 + a[4] * T**4 / 4 + a[6])
 
+    def Cp(self, T, R):  # noqa: N802
+        a = self._a
+        return R * (a[0] + a[1] * T + a[2] * T**2 + a[3] * T**3 + a[4] * T**4)
+
 
 class Shomate(ThermoModel):
     """NIST Shomate equation thermo.
@@ -91,6 +100,11 @@ class Shomate(ThermoModel):
         A, B, C, D, E, F, G, H = self.coef
         t = T / self.Tscale
         return A * log(t) + B * t + C * t**2 / 2 + D * t**3 / 3 - E / (2 * t**2) + G
+
+    def Cp(self, T, R):  # noqa: N802
+        A, B, C, D, E, F, G, H = self.coef
+        t = T / self.Tscale
+        return A + B * t + C * t**2 + D * t**3 + E / t**2
 
 
 class GeneralThermo(ThermoModel):

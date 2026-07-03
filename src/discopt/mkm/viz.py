@@ -12,22 +12,22 @@ import numpy as np
 from discopt.mkm import numeric
 
 
-def energy_diagram(mkm, T=None, ax=None, pressures=None):
-    """Free-energy diagram along the mechanism (states and transition states).
+def energy_profile(mkm, T=None, pressures=None):
+    """Cumulative state free energies and transition-state heights of the mechanism.
 
-    Follows the reactions in their listed order, accumulating the reaction free
-    energy ``dG_j`` to place each state and the forward barrier ``Ea_j`` to place
-    each transition state (Arrhenius steps; barrierless connector otherwise).
-    Energies are standard free energies at ``T`` (model ``T`` by default); pass
-    ``pressures={gas: P}`` to add the gas chemical potential ``R T ln P``.
+    Returns ``(states, ts)``: ``states[i]`` is the cumulative free energy after the
+    first ``i`` reactions (``states[0] = 0``), and ``ts[j]`` is the height of step
+    ``j``'s transition state. For an Arrhenius step the TS sits at the reactant
+    state plus the forward barrier ``Ea``; an **electrochemical** Arrhenius step
+    adds the Butler-Volmer barrier shift ``beta * n_electrons * F * U`` so the TS
+    tracks the same ``n F U`` potential dependence the state energies already carry
+    (via ``reaction_free_energy``). Explicit-rate / equilibrated steps get a
+    barrierless connector (the higher of the two flanking states).
     """
-    import matplotlib.pyplot as plt
-
     T = mkm.T if T is None else float(T)
     theta0 = {a: 0.0 for a in mkm.adsorbates}  # clean-surface reference
     RT = mkm.R * T
 
-    # cumulative state energies and transition-state heights
     states = [0.0]
     ts = []
     for rxn in mkm.reactions:
@@ -39,10 +39,32 @@ def energy_diagram(mkm, T=None, ax=None, pressures=None):
                     dG += nu * RT * float(np.log(max(pressures[g], 1e-300)))
         nxt = states[-1] + dG
         if not rxn.explicit_rate and not rxn.equilibrated:
-            ts.append(states[-1] + rxn.Ea)  # forward barrier
+            barrier = rxn.Ea
+            if getattr(rxn, "is_electrochemical", False):
+                # forward barrier shifts by the beta fraction of the n F U term
+                barrier = barrier + rxn.beta * rxn.n_electrons * mkm.F * mkm.U
+            ts.append(states[-1] + barrier)  # forward barrier
         else:
             ts.append(max(states[-1], nxt))  # no explicit barrier
         states.append(nxt)
+    return states, ts
+
+
+def energy_diagram(mkm, T=None, ax=None, pressures=None):
+    """Free-energy diagram along the mechanism (states and transition states).
+
+    Follows the reactions in their listed order, accumulating the reaction free
+    energy ``dG_j`` to place each state and the forward barrier ``Ea_j`` to place
+    each transition state (Arrhenius steps; barrierless connector otherwise). For
+    an electrochemical step the barrier picks up the ``beta * n_electrons * F * U``
+    shift (see :func:`energy_profile`). Energies are standard free energies at
+    ``T`` (model ``T`` by default); pass ``pressures={gas: P}`` to add the gas
+    chemical potential ``R T ln P``.
+    """
+    import matplotlib.pyplot as plt
+
+    T = mkm.T if T is None else float(T)
+    states, ts = energy_profile(mkm, T, pressures)
 
     if ax is None:
         _, ax = plt.subplots(figsize=(1.6 + 1.1 * len(mkm.reactions), 4), layout="constrained")

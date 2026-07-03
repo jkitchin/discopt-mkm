@@ -87,8 +87,11 @@ class Site(Species):
     name : str
         Site label (e.g. ``"Pt"``).
     density : float
-        Areal site density (sites per unit area). Used to convert surface
-        reaction rates into coverage time-derivatives.
+        Areal site density (sites per unit area). **Currently metadata only** — it
+        is stored for reference but not yet wired into the rate / ODE / steady-state
+        equations (coverages are fractional and the site balance is normalized to
+        1). The active scaling knob coupling surface rate to the gas balance is the
+        reactor-level ``cat_density`` (see :mod:`discopt.mkm.reactors`).
     """
 
     phase = "site"

@@ -129,15 +129,21 @@ def _submodel(model, keep_reactions, reactor=None):
 def _drc_table(model, pres_by_name_list, target_name, T):
     """Aggregate max |X_RC| per reaction over conditions, on a (conditioned) model.
 
-    Warm-starts the differentiable solve from the robust numeric root and falls
-    back to log-coordinates if the linear KKT is ill-conditioned.
+    Tries the linear differentiable solve first, falling back to a log-coordinate
+    solve warm-started from the robust numeric root if the linear KKT is
+    ill-conditioned. If *no* condition yields sensitivities, returns ``None`` for
+    every reaction (an honest "DRC could not be computed", matching the agent
+    layer's ``drc: null`` contract) rather than a misleading all-zero table.
     """
     agg = {r: 0.0 for r in model.reactions}
+    any_success = False
     for pres in pres_by_name_list:
         theta, _ = _numeric_state(model, pres, T)
         reactor = _reactor(model, pres)
         X = None
-        for kw in (dict(theta0=theta, active_tol=1e-12),
+        # the linear solve ignores theta0 (it only warm-starts log coordinates), so
+        # don't pass it there; the log fallback does use the numeric warm start.
+        for kw in (dict(active_tol=1e-12),
                    dict(coordinates="log", theta0=theta, log_box=4.0,
                         reg_weight=0.1, active_tol=1e-12)):
             try:
@@ -148,8 +154,11 @@ def _drc_table(model, pres_by_name_list, target_name, T):
                 continue
         if X is None:
             continue
+        any_success = True
         for r, v in X.items():
             agg[r] = max(agg[r], abs(float(v)))
+    if not any_success:
+        return {r: None for r in model.reactions}
     return agg
 
 
@@ -504,10 +513,25 @@ def _select_milp(model, conds, target_name, data, T, solver_options):
     """
     import discopt.modeling as dm
 
+    from discopt.mkm.species import GasSpecies
+
     rxns = model.reactions
     target = model._by_name[target_name]
     kf, kr = rate_constants(model, T)
-    cap = {r: max(float(kf[r]), float(kr[r])) for r in rxns}
+    # capacity bound on |flux|: the one-way rate at the *largest* activity product
+    # over the conditions. Bounding by ``max(kf, kr)`` alone assumes every activity
+    # is <= 1, which is false for partial pressures > 1 — the true flux ``kf * P^order``
+    # then exceeds the cap and feasible mechanisms are wrongly rejected. Only *gas*
+    # activities can exceed 1 (coverages are <= 1), so raise just the gas
+    # stoichiometry to ``pmax`` — this keeps the bound tight (a loose big-M would
+    # ruin the MILP conditioning at high pressure).
+    pmax = max([max(list(c.values()) + [1.0]) for c in conds])
+
+    def gas_order(stoich):
+        return sum(c for sp, c in stoich.items() if isinstance(sp, GasSpecies))
+
+    cap = {r: float(kf[r]) * pmax ** gas_order(r.reactants)
+              + float(kr[r]) * pmax ** gas_order(r.products) for r in rxns}
 
     m = dm.Model(f"milp_{model.name}")
     z = {r: m.boolean(f"z_{j}") for j, r in enumerate(rxns)}
