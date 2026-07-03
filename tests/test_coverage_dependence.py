@@ -6,6 +6,9 @@ import discopt.mkm as mk
 from discopt.mkm.analysis import degree_of_rate_control
 from discopt.mkm.examples import co_oxidation
 
+# Whole file: interaction/BEP degree-of-rate-control solves are slow.
+pytestmark = pytest.mark.slow
+
 
 def test_drc_still_sums_to_one_with_interactions():
     """Lateral interactions + a BEP barrier shift must not break Campbell's sum rule."""

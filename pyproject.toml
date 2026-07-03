@@ -39,6 +39,14 @@ dev = [
     "ipykernel>=6",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    # Long-running tests (mostly stiff / log-coordinate NLP solves). Deselected in
+    # CI with `-m "not slow"`; run the full suite locally with `uv run pytest` (no
+    # filter), or just the slow set with `uv run pytest -m slow`.
+    "slow: marks tests as slow to run (deselect with '-m \"not slow\"')",
+]
+
 # discopt.mkm is a PEP 420 namespace subpackage: it merges into the ``discopt``
 # namespace at import time (discopt's __init__ extends its __path__ via
 # pkgutil.extend_path). We deliberately package only ``discopt.mkm`` — never

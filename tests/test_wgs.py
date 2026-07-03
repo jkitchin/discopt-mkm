@@ -12,6 +12,9 @@ from discopt.mkm import numeric
 from discopt.mkm.analysis import degree_of_rate_control
 from discopt.mkm.examples import water_gas_shift
 
+# Whole file: the WGS log-coordinate solve is slow (deselected in CI via -m "not slow").
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture(scope="module")
 def wgs_solution():

@@ -8,6 +8,9 @@ from discopt.mkm.energy import EnergyBalance
 from discopt.mkm.examples import adiabatic_cstr, co_oxidation
 from discopt.mkm.pfr import solve_pfr
 
+# Whole file: PFR spatial-DAE and non-isothermal energy-balance solves are slow.
+pytestmark = pytest.mark.slow
+
 
 def test_isothermal_pfr_atom_balance():
     m, _ = co_oxidation(T=500.0)

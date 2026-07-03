@@ -7,6 +7,9 @@ from discopt.mkm import numeric
 from discopt.mkm.analysis import degree_of_rate_control
 from discopt.mkm.examples import water_gas_shift, water_gas_shift_qea
 
+# Whole file: the QEA/log-coordinate WGS solves are slow. Deselected in CI.
+pytestmark = pytest.mark.slow
+
 
 def test_langmuir_hinshelwood_closed_form():
     """A + * <=> A* (equilibrated), A* -> B + * (RDS) gives the analytic LHHW rate."""

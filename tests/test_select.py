@@ -17,6 +17,9 @@ from discopt.mkm.examples import co_oxidation, overcomplete_co_oxidation
 MINIMAL = {"CO adsorption", "O2 dissociation", "surface reaction"}
 CONDS = [{"CO": 1.0, "O2": 0.5}, {"CO": 2.0, "O2": 0.5}, {"CO": 0.5, "O2": 1.0}]
 
+# Whole file: mechanism selection runs many NLP solves per candidate subset (slow).
+pytestmark = pytest.mark.slow
+
 
 def _data():
     mt, _ = co_oxidation(500.0)

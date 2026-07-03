@@ -10,6 +10,10 @@ jax.config.update("jax_enable_x64", True)
 import discopt.mkm as mk
 from discopt.mkm.analysis import stoichiometry as st
 
+# Whole file: discovering a mechanism from a PES then building/solving it is very
+# slow (a large POUNCE reaction-network solve). Deselected in CI via -m "not slow".
+pytestmark = pytest.mark.slow
+
 
 def _pes():
     # tilted symmetric quartic: minima near x = -2,-1,1,2 at distinct energies

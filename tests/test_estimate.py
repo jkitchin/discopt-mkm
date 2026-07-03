@@ -7,6 +7,9 @@ from discopt.mkm.examples import co_oxidation
 
 TS = [480.0, 500.0, 520.0]
 
+# Whole file: parameter-estimation fits solve the model at every condition (slow).
+pytestmark = pytest.mark.slow
+
 
 def _synthetic_tof():
     data = []

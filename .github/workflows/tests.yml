@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # cancel superseded runs on the same ref (a new push replaces the in-flight one)
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # the microkinetic solves (POUNCE/JAX NLP) make the suite take ~8-9 min
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (with cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+
+      - name: Install dependencies
+        # --frozen: install exactly the locked versions (uv.lock); the dev group
+        # (pytest) is synced by default, --extra mcp adds the MCP server deps.
+        run: uv sync --frozen --extra mcp
+
+      - name: Run tests
+        # skip the slow tests (stiff/log-coordinate NLP solves); run the full
+        # suite locally with `uv run pytest`.
+        run: uv run pytest -q -m "not slow"

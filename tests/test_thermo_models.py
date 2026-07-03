@@ -5,6 +5,9 @@ import pytest
 
 import discopt.mkm as mk
 
+# Whole file: NASA7/Shomate thermo models each drive a full solve (slow).
+pytestmark = pytest.mark.slow
+
 
 def _adsorption(thermo=None, H=0.0, S=0.0, Cp=0.0, T=400.0):
     """A + * <=> A* with A* carrying the given thermo; returns solved coverage."""
