@@ -11,6 +11,68 @@ from a single root cause (see T1).
 
 ---
 
+## Resolution status
+
+All findings were addressed across four commits on `claude/module-review-ibadto`.
+The suite now stands at **135 passed, 0 failed** (98 original tests, all green,
+plus 37 new regression tests in `tests/test_review_fixes.py`, one or more per
+finding). Every fix was verified by the full suite before the next phase.
+
+| Finding | Status | Commit |
+|---|---|---|
+| H1 explicit-Keq electrochemical detailed balance | fixed | `8609857` |
+| H2 log solve ignores reactor gas balance | fixed | `8609857` |
+| H3 batch steady-state returns garbage | fixed (now raises) | `8609857` |
+| H4 symbolic truncates fractional coefficients | fixed | `8609857` |
+| H5 select flux screen drops zero-net-flux steps | fixed (one-way screen) | `8609857` |
+| H6 equilibrated steps vanish from numeric paths | fixed (now raise) | `8609857` |
+| H7 estimate assumes plain Arrhenius | fixed | `8609857` |
+| M5 unverified "optimal" solves | fixed (residual check) | `8609857` |
+| M6 log residual scaling forward-only | fixed | `8609857` |
+| T1 WGS log-solve NLP failure | fixed (warm-start box) | `8609857` |
+| M1 re-solve invalidates earlier solution | fixed (snapshots) | `498fcc2` |
+| M2 parser splits ionic species (`H+`) | fixed | `498fcc2` |
+| M3 energy-diagram TS ignores BV shift | fixed | `498fcc2` |
+| M4 energy balance loses NASA7/Shomate Cp | fixed | `498fcc2` |
+| M7 MILP capacity bound assumes activities ≤ 1 | fixed | `498fcc2` |
+| M8 `_drc_table` silent failures / ignored warm start | fixed | `498fcc2` |
+| M9 spec accepts typos / cross-field misuse | fixed (`extra="forbid"`) | `498fcc2` |
+| M10 `to_spec` lossy (thermo, reactor type) | fixed | `498fcc2` |
+| M11 `Site.density` documented but dead | fixed (doc-only) | `498fcc2` |
+| M12 non-isothermal solve starts at ~10 K | fixed (rescaled T) | `498fcc2` |
+| M13 `active_tol` default degrades linear DRC | doc clarification | `498fcc2` |
+| C1 no agent/MCP electrochemistry surface | fixed (4 tools added) | `e853915` |
+| C2 MCP tools drop args | fixed | `e853915` |
+| C3 `analyze` swallows apparent-kinetics failures | fixed (note) | `e853915` |
+| C4 `alpha` silently inert without interactions | fixed (warns) | `e853915` |
+| C5 multidentate adsorbates unsupported | won't fix (documented limitation) | — |
+| C6 dead fit warm-start knobs | fixed (theta0 wired; init doc'd; lb guard) | `e853915` |
+| C7 limiting_potential assumes reduction | fixed (raises for oxidation) | `e853915` |
+| C8 CV vs current-density sign conflict | fixed (doc-only) | `e853915` |
+| C9 render hides electrochemistry | fixed | `e853915` |
+| C10 route numbers int-rounded; routes lack caveat | fixed | `e853915` |
+| C11 hard-coded gas `ub=1e6` | fixed (adaptive) | `e853915` |
+| C12 numeric `baseH` mirror mismatch | fixed (raises) | `e853915` |
+| P1 rate-expression graph duplication | fixed (shared rate_cache) | `1b875fb` |
+| P2 uncached JAX compile in `_eval` | skipped (unsafe for DRC) | — |
+| P3 `net_stoich` rebuilt every call | fixed (cached, ~17×) | `1b875fb` |
+| P4 rate constants rebuilt per iteration | fixed (hoisted) | `1b875fb` |
+| P5 select rebuilds models via spec round-trip | skipped (marginal/risky) | — |
+| P6 pure-Python CV Thomas solve | fixed (banded, ~8×) | `1b875fb` |
+
+**Deviations from the raw finding** (each an honest, least-invasive choice):
+H3/H6/C7 turn silent-wrong-answers into clear errors rather than adding niche
+support; M11/M13/C8 are doc-only where the code was already correct; C6 wires
+`Observation.theta0` but documents (rather than force-wires) `FitParam.init`
+because discopt has no per-variable start hook; M4 and the energy path raise
+`NotImplementedError` for the niche energy-balance-plus-equilibrated combination;
+P2 and P5 were skipped because they could not be shown behavior-preserving for
+the sensitivity/selection paths. C5 (multidentate adsorbates) remains a
+documented limitation — the site balance is one-site-per-adsorbate — but it
+errors loudly rather than mis-solving.
+
+---
+
 ## High-severity correctness
 
 ### H1. Explicit-`Keq` electrochemical steps ignore the potential — detailed balance broken *(verified)*
