@@ -77,7 +77,7 @@ def degree_of_rate_control(solution, rate_expr=None, species=None) -> dict:
 def thermo_rate_control(solution, rate_expr=None, species=None) -> dict:
     """Thermodynamic degree of rate control ``X_TRC,n`` for each species.
 
-    ``X_TRC,n = -(1 / (k_B T)) (d ln r / d (G_n / (k_B T)))`` ... implemented as
+    ``X_TRC,n = -(d ln r / d (G_n / (k_B T)))`` (dimensionless), implemented as
     ``X_TRC,n = -(k_B T / r) (dr/d dG_n)`` where ``dG_n`` is the per-species
     free-energy offset parameter that flows into every ``K_eq`` (and hence the
     derived reverse rates). Here ``k_B`` is the gas constant in the model's

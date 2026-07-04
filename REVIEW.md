@@ -48,6 +48,33 @@ rather than returning wrong results.
 
 ---
 
+## Round 3 — under-reviewed files + round-2 edge cases
+
+A third pass targeted the code that got the *lightest* scrutiny in rounds 1–2
+(the site-balance / quasi-equilibrium assembly, the transient/PFR DAE solves,
+the AD/sensitivity core behind DRC, the symbolic LHHW derivation, and
+discovery/rendering) plus adversarial edge-cases of the round-2 diff. Three
+reviewers, all verifying by execution — **no high- or medium-severity bug was
+found anywhere**. The AD machinery was cross-checked against independent
+finite-difference re-solves (DRC/TRC/apparent orders all match to ~8 digits),
+and the symbolic rate law matched hand-known Langmuir–Hinshelwood forms.
+
+Round 3 produced only low/doc-level items, all fixed:
+
+- **examples.py** — the shipped `adiabatic_cstr` example failed `validate()`:
+  its product `"B"` infers to element boron while reactant `"A"` infers to no
+  element, a false imbalance. Gave `A`/`B`/`A*` an explicit shared
+  `composition` (it is an A→B isomerization), so the example now validates.
+- **numeric.py** — extended the warm-start physical-root check to the free-site
+  coverage, so a spurious root with each θ ≤ 1 but Σθ > 1 (⇒ free < 0) is also
+  rejected (the round-2 change only covered individual adsorbate coverages).
+- **drc.py / mcp_server.py** — doc fixes: the thermodynamic-rate-control
+  docstring's leading formula had a stray `1/(k_BT)` factor (the code and the
+  second formula were correct), and the MCP `solve` tool still listed the
+  removed `least_squares` method.
+
+---
+
 ## Resolution status
 
 All findings were addressed across four commits on `claude/module-review-ibadto`.
