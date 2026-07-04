@@ -75,6 +75,31 @@ Round 3 produced only low/doc-level items, all fixed:
 
 ---
 
+## Round 4 — differential / property-based fuzz
+
+Rather than a fourth static re-read (rounds 1–3 had saturated that), round 4
+used a *different* technique: a differential fuzz cross-checking the two
+independent solve implementations (the discopt symbolic/AD path vs. the SciPy
+numeric path) plus physical invariants — coverage agreement, TOF agreement,
+site balance, DRC-sums-to-1, detailed balance `kf/kr = Keq`, and apparent order
+vs. finite difference — over dozens of randomized CO-oxidation mechanisms.
+
+**No correctness bug.** Every flagged case was investigated and confirmed
+benign: genuine steady-state **multiplicity** (CO-oxidation bistability — the
+numeric solver finds two real roots from different seeds), the code correctly
+**declining** to return a wrong answer (`SensitivityUnavailable` / the numeric
+out-of-range guard firing), or the already-documented **`active_tol`**
+limitation at saturated coverages (DRC garbage at the default `1e-3`, exactly
+`1.0` at `1e-13`, as the docstring instructs). Where a unique well-conditioned
+steady state exists, the two solvers agree and every invariant holds.
+
+One small hardening the fuzz motivated: `degree_of_rate_control` now **warns**
+when its values do not sum to ~1 (Campbell's theorem), turning the previously
+silent garbage DRC at a saturated/ill-conditioned point into an actionable
+signal pointing at a smaller `active_tol` or `coordinates="log"`.
+
+---
+
 ## Resolution status
 
 All findings were addressed across four commits on `claude/module-review-ibadto`.
