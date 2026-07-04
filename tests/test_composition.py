@@ -19,6 +19,11 @@ def test_formula_parsing():
     assert parse_formula("CO*") == {"C": 1, "O": 1}  # site marker stripped
     assert parse_formula("Ca(OH)2") == {"Ca": 1, "O": 2, "H": 2}
     assert looks_like_formula("C3H6") and not looks_like_formula("A")
+    # a charge/config label after a '-' must not be absorbed as the previous
+    # element's subscript: "H2O-2" is water (H2O), not H2O2.
+    assert parse_formula("H2O-2") == {"H": 2, "O": 1}
+    assert parse_formula("O2-") == {"O": 2}
+    assert parse_formula("H+") == {"H": 1}
 
 
 def test_infer_composition_flags_non_formulas():

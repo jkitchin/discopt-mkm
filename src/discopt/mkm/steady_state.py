@@ -184,12 +184,13 @@ def solve_steady_state(
 
     Parameters
     ----------
-    method : {"auto", "feasibility", "least_squares"}
-        Used in ``coordinates="linear"`` mode. ``"feasibility"`` poses the square
-        root-find with a zero objective (most accurate sensitivities);
-        ``"least_squares"`` minimizes the residual norm subject to site
-        conservation (robust near saturated coverages); ``"auto"`` tries
-        feasibility then falls back.
+    method : {"auto", "feasibility"}
+        Used in ``coordinates="linear"`` mode. Both pose the square steady-state
+        system as a feasibility root-find with a zero objective (this gives the
+        most accurate implicit-differentiation sensitivities); ``"auto"`` is an
+        alias kept for API stability. For stiff / saturated-coverage mechanisms
+        where the linear feasibility solve struggles, use ``coordinates="log"``
+        with a warm start rather than a residual-norm minimization.
     coordinates : {"linear", "log"}
         ``"log"`` solves in log-coverages ``z = ln(theta)`` with a search box and
         a regularizer centered on the warm start ``theta0``. This is required for
@@ -230,7 +231,7 @@ def solve_steady_state(
             mkm, reactor, theta0, log_box, reg_weight, active_tol, nlp_solver, solver_options
         )
 
-    def build(least_squares: bool):
+    def build():
         m = dm.Model(f"{mkm.name}_ss")
         T_param = mkm.wire_parameters(m)
         # non-isothermal: temperature becomes an unknown driven by an energy
@@ -282,44 +283,31 @@ def solve_steady_state(
                 site_balance_residual(mkm, s, theta, free_cov) == 0.0, name=f"site_{_safe(s.name)}"
             )
 
-        if least_squares:
-            m.minimize(dm.sum([r * r for r in residuals]))
-        else:
-            for k, r in enumerate(residuals):
-                m.subject_to(r == 0.0, name=f"ss_{k}")
-            m.minimize(0.0)
+        # square steady-state system as a feasibility root-find (zero objective)
+        for k, r in enumerate(residuals):
+            m.subject_to(r == 0.0, name=f"ss_{k}")
+        m.minimize(0.0)
         return m, T_expr, conc, theta, free_cov, extents
 
-    def run(least_squares: bool):
-        m, T_param, conc, theta, free_cov, extents = build(least_squares)
+    def run():
+        m, T_param, conc, theta, free_cov, extents = build()
         result = differentiable_solve_l3(
             m, active_tol=active_tol, nlp_solver=nlp_solver, solver_options=solver_options or {}
         )
-        if least_squares:
-            # a least-squares solve reports "optimal" at *any* local minimum of the
-            # residual norm; the objective here IS the residual sum of squares, so
-            # verify it is essentially zero rather than trusting the status. At a
-            # true steady state the net rates vanish, so this is an absolute check.
-            sse = result.objective
-            if sse is not None and float(sse) > 1e-9:
-                raise RuntimeError(
-                    f"least-squares steady-state solve converged to a non-steady point "
-                    f"(residual sum of squares {float(sse):.3e} >> 0); the reported "
-                    "'optimal' status is a local minimum of the residual norm, not a "
-                    "steady state. Try coordinates='log' with a warm start."
-                )
         return SteadyStateSolution(mkm, m, result, T_param, conc, theta, free_cov, reactor,
                                    extents, U_param=mkm._U_param)
 
+    if method in ("auto", "feasibility"):
+        return run()
     if method == "least_squares":
-        return run(least_squares=True)
-    if method == "feasibility":
-        return run(least_squares=False)
-    if method == "auto":
-        try:
-            return run(least_squares=False)
-        except RuntimeError:
-            return run(least_squares=True)
+        # A residual-norm ("least squares") primal is not usable with the current
+        # discopt backend — differentiable_solve_l3 returns status "unbounded" for
+        # the sum-of-squares objective. Point stiff/saturated cases at log coords.
+        raise ValueError(
+            "method='least_squares' is not supported by the current discopt backend; "
+            "use the default method and, for stiff or saturated-coverage mechanisms, "
+            "coordinates='log' with a warm start (theta0)."
+        )
     raise ValueError(f"unknown method {method!r}")
 
 

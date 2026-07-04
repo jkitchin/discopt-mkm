@@ -18,7 +18,12 @@ ELEMENTS = set(
     Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og""".split()
 )
 
-_TOKEN = re.compile(r"[A-Z][a-z]?|\(|\)|\d+")
+# Element symbol, parenthesis, digit run, or any *other* single character. The
+# catch-all is deliberate: a separator such as the ``-`` in a charge/config label
+# (``"H2O-2"``) must become its own token so it breaks the adjacency between an
+# element and a trailing digit — otherwise that digit is wrongly read as the
+# element's subscript (``H2O-2`` -> ``{H:2, O:2}`` instead of ``{H:2, O:1}``).
+_TOKEN = re.compile(r"[A-Z][a-z]?|\(|\)|\d+|.")
 
 
 def parse_formula(name: str) -> dict:
@@ -54,7 +59,7 @@ def parse_formula(name: str) -> dict:
                 cnt = int(tokens[i])
                 i += 1
             stack[-1][t] = stack[-1].get(t, 0) + cnt
-        else:  # a stray number (e.g. a config index after a stripped '-') -> ignore
+        else:  # a separator ('-', '+', …) or a stray digit after one -> ignore
             i += 1
     return {e: c for e, c in stack[0].items() if c}
 
