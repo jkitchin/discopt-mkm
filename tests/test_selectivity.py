@@ -61,6 +61,7 @@ def test_selectivity_falls_as_oxygen_pressure_rises():
     assert th_high[m._by_name["O*"]] > th_low[m._by_name["O*"]]
 
 
+@pytest.mark.slow
 def test_degree_of_selectivity_control_sums_to_zero():
     m, reactor = selective_oxidation(P_O2=0.5)
     A, O2, P1, P2 = (m._by_name[n] for n in ("A", "O2", "P1", "P2"))

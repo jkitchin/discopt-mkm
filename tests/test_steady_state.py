@@ -56,6 +56,7 @@ def test_drc_sums_to_one_and_identifies_rds(solved):
     assert X[surface] == pytest.approx(1.0, abs=1e-2)
 
 
+@pytest.mark.slow
 def test_drc_matches_finite_difference(solved):
     m, sol = solved
     CO2 = m._by_name["CO2"]
@@ -82,6 +83,7 @@ def test_thermo_rate_control_available(solved):
     assert all(np.isfinite(v) for v in T.values())
 
 
+@pytest.mark.slow
 def test_transient_converges_to_steady_state():
     m, reactor = co_oxidation(T=500.0)
     COs, Os = m._by_name["CO*"], m._by_name["O*"]

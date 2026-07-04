@@ -8,6 +8,9 @@ import discopt.mkm as mk
 from discopt.mkm.analysis import apparent_activation_energy, apparent_orders
 from discopt.mkm.examples import co_oxidation
 
+# Whole file: apparent-order/Ea finite-difference sweeps run many solves (slow).
+pytestmark = pytest.mark.slow
+
 
 # ---------------------------------------------------------------- apparent
 def _tof(P, T=500.0):

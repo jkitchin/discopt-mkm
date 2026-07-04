@@ -41,6 +41,7 @@ def test_explicit_keq_electrochemical_detailed_balance():
     assert sol.coverage(Hs) == pytest.approx(th[Hs], rel=1e-4)
 
 
+@pytest.mark.slow
 def test_explicit_keq_equilibrated_electrochemical_responds_to_potential():
     # An equilibrated explicit-Keq faradaic step's coverages must move with U.
     def solve(U):
@@ -94,6 +95,7 @@ def test_select_rejects_equilibrated():
 
 
 # --- H2 + M6 + T1: log-coordinate solve honors the reactor gas balance -------
+@pytest.mark.slow
 def test_log_coordinates_cstr_matches_linear():
     # A CSTR solved in log coordinates must match the linear CSTR solve; pre-fix
     # the log path never constrained the gas concentrations (they drifted to the
@@ -143,6 +145,7 @@ def _explicit_rate_fit_model(temp=500.0):
     return m, A, B, As, surf
 
 
+@pytest.mark.slow
 def test_fit_with_explicit_rate_step_no_stale_handles():
     # Solve the fit model ONCE first (populating handles from one discopt model),
     # then fit (which builds a fresh discopt model). Pre-fix the explicit step's
@@ -199,6 +202,7 @@ def test_numeric_warm_start_rejects_spurious_negative_root():
 
 
 # --- M1: re-solving a model must not invalidate an earlier solution ----------
+@pytest.mark.slow
 def test_earlier_solution_survives_a_resolve():
     # Two solves of the SAME model at different T rewire the shared parameter
     # handles on the Species/Reaction objects. Pre-fix, the first solution rebuilt
@@ -292,6 +296,7 @@ def _nasa7_energy_cstr(T=500.0):
     return m, reactor, EnergyBalance(T_in=T), A
 
 
+@pytest.mark.slow
 def test_energy_balance_uses_thermo_cp():
     # The gas heat capacity lives in a NASA7 model (Cp_param is None). Pre-fix the
     # inlet-stream cp_in fell back to the constant g.Cp (0), degenerating the
@@ -346,6 +351,7 @@ def _eley_rideal_model(T=500.0):
     return m, A, P
 
 
+@pytest.mark.slow
 def test_milp_selection_pressure_aware_cap():
     m, A, P = _eley_rideal_model(500.0)
     obs = mk.solve_steady_state(m, mk.DifferentialReactor({A: 10.0, P: 0.0})).production_rate(P)
@@ -432,6 +438,7 @@ def test_to_spec_roundtrips_thermo_and_reactor():
 
 
 # --- M12: the non-isothermal steady solve starts at a physical temperature ---
+@pytest.mark.slow
 def test_nonisothermal_solve_temperature_is_physical():
     # With R = 8.314 and Ea = 60 kJ/mol the Arrhenius factor underflows at the
     # ~10 K start discopt's clip would otherwise pick; the scaled T variable starts
@@ -472,6 +479,7 @@ def _orr_spec():
 
 
 # --- C1: electrochemistry is reachable from the agent / MCP surface ----------
+@pytest.mark.slow
 def test_agent_current_returns_finite_number():
     from discopt.mkm import agent
 
@@ -534,6 +542,7 @@ def test_mcp_tools_expose_method_and_coordinates():
 
 
 # --- C3: analyze records why apparent kinetics were skipped (CSTR) -----------
+@pytest.mark.slow
 def test_analyze_cstr_records_apparent_kinetics_note():
     from discopt.mkm import agent
 
@@ -555,6 +564,7 @@ def test_analyze_cstr_records_apparent_kinetics_note():
 
 
 # --- C4: alpha with no interactions warns (it would otherwise be inert) -------
+@pytest.mark.slow
 def test_alpha_without_interactions_warns():
     m = mk.Model("bep", T=500.0, R=R, Tref=298.15)
     s = m.site("*", density=1.0)
@@ -588,6 +598,7 @@ def _explicit_fit_setup():
     return m, A, B, As, surf, obs
 
 
+@pytest.mark.slow
 def test_fit_theta0_warm_start_is_wired():
     # Observation.theta0 warm-starts each condition's coverage variables (adsorbate
     # + free-site, completed from the site balance) via the estimation solve's
@@ -679,6 +690,7 @@ def test_route_stoichiometric_numbers_not_int_rounded():
 
 
 # --- C11: a large CSTR feed is not clipped by a hard gas upper bound ----------
+@pytest.mark.slow
 def test_cstr_large_inlet_not_clipped():
     m = mk.Model("big", T=500.0, R=R, Tref=298.15)
     s = m.site("*", density=1.0)

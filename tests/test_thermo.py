@@ -23,6 +23,7 @@ def test_kf_over_kr_equals_keq(T):
         assert kf / kr == pytest.approx(keq, rel=1e-9)
 
 
+@pytest.mark.slow
 def test_temperature_changes_rate():
     """Higher temperature should change the turnover frequency (kinetics are T-coupled)."""
     tofs = []

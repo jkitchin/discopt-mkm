@@ -69,6 +69,7 @@ def test_che_free_energy_shifts_linearly_with_potential():
     assert dG0.sum() == pytest.approx(-4.92, abs=1e-6)   # 4-electron equilibrium 1.23 V
 
 
+@pytest.mark.slow
 def test_tafel_slope_and_transfer_coefficient():
     for beta in (0.5, 0.3):
         m, Hp, H2, Hs, volmer = _her(beta=beta)

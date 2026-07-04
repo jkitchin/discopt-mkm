@@ -44,6 +44,7 @@ def test_yaml_and_roundtrip():
     assert len(m2.reactions) == 3
 
 
+@pytest.mark.slow
 def test_agent_tools_are_json_serializable():
     for result in (agent.validate(SPEC), agent.structure(SPEC), agent.solve(SPEC),
                    agent.degree_of_rate_control(SPEC, "CO2"), agent.apparent_kinetics(SPEC, "CO2"),

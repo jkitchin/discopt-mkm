@@ -12,6 +12,10 @@ import pytest
 
 import discopt.mkm as mk
 
+# Whole file: Levich/Koutecky-Levich sweeps re-solve the RDE at many rotation
+# rates (slow). Deselected in CI via -m "not slow".
+pytestmark = pytest.mark.slow
+
 R, T, F = 8.617e-5, 298.0, 1.0
 
 
