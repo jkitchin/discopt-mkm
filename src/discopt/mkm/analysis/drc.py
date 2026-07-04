@@ -9,6 +9,8 @@ identically zero for the zero-objective feasibility formulation).
 
 from __future__ import annotations
 
+import warnings
+
 from discopt.mkm.analysis.sensitivity import evaluate_expression, param_slice, total_derivative
 
 
@@ -45,7 +47,9 @@ def degree_of_rate_control(solution, rate_expr=None, species=None) -> dict:
     Returns
     -------
     dict
-        ``{reaction: X_RC}`` for every reaction in the model.
+        ``{reaction: X_RC}`` for every reaction in the model. Emits a warning if
+        the values do not sum to ~1 (Campbell's theorem), which flags an
+        ill-conditioned/saturated operating point where the result is unreliable.
     """
     expr = _resolve_rate_expr(solution, rate_expr, species)
     model, result = solution.dm_model, solution.result
@@ -71,13 +75,32 @@ def degree_of_rate_control(solution, rate_expr=None, species=None) -> dict:
         start, _ = param_slice(handle, model)
         k = rxn.rate_constant_value()
         out[rxn] = (k / r_star) * float(dr_dp[start])
+
+    # Campbell's theorem: the kinetic degrees of rate control of a *reaction rate*
+    # sum to 1. A large deviation means the implicit-differentiation sensitivities
+    # are ill-conditioned — almost always a saturated coverage evaluated with the
+    # default active_tol, where the returned numbers are unreliable (the L3 solver
+    # did not raise SensitivityUnavailable but the result is still garbage). Warn
+    # rather than return a silently-wrong DRC. Only check the genuine-rate path: a
+    # caller-supplied ``rate_expr`` may be any quantity (a selectivity ratio, a
+    # faradaic current, ...) whose degrees of control need not sum to 1.
+    if rate_expr is None:
+        total = sum(out.values())
+        if abs(total - 1.0) > 0.1:
+            warnings.warn(
+                f"degree of rate control sums to {total:.3g}, not ~1 as Campbell's theorem "
+                "requires; the result is likely ill-conditioned (often a saturated coverage "
+                "with the default active_tol). Retry with a smaller active_tol (below the "
+                "smallest coverage) or coordinates='log' with a warm start.",
+                stacklevel=2,
+            )
     return out
 
 
 def thermo_rate_control(solution, rate_expr=None, species=None) -> dict:
     """Thermodynamic degree of rate control ``X_TRC,n`` for each species.
 
-    ``X_TRC,n = -(1 / (k_B T)) (d ln r / d (G_n / (k_B T)))`` ... implemented as
+    ``X_TRC,n = -(d ln r / d (G_n / (k_B T)))`` (dimensionless), implemented as
     ``X_TRC,n = -(k_B T / r) (dr/d dG_n)`` where ``dG_n`` is the per-species
     free-energy offset parameter that flows into every ``K_eq`` (and hence the
     derived reverse rates). Here ``k_B`` is the gas constant in the model's

@@ -321,6 +321,14 @@ def fit_kinetics(
     solver_options : dict, optional
         Forwarded to discopt's solve (e.g. ``{"nlp_solver": "pounce"}``).
 
+    Notes
+    -----
+    For a mechanism with explicit-rate (``kf``/``Keq``) steps the simultaneous
+    fit is prone to an ``unbounded`` solve from the default (bounds-midpoint)
+    coverage start; give each :class:`Observation` a ``theta0`` coverage warm
+    start (e.g. from :func:`discopt.mkm.numeric.steady_state_numeric`) to
+    stabilize it.
+
     Returns
     -------
     MKMEstimationResult

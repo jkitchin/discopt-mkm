@@ -219,18 +219,23 @@ def steady_state_numeric(
             f"scale {scale:.3e}. Try a different theta0 seed."
         )
 
-    # coverages must be physical: a *meaningfully* negative coverage means a
-    # spurious root. Tolerance is loose (1e-4) because this is only a warm start
-    # for stiff systems where fsolve returns ~1e-6 negative noise on genuinely
-    # near-zero coverages (e.g. water-gas shift); a real poisoned root is O(0.1)
-    # negative. Smaller negatives are clamped to 0.
-    negatives = [a.name for a in ads if theta[a] < -1e-4]
-    if negatives:
+    # coverages must be physical, i.e. in [0, 1]: a *meaningfully* out-of-range
+    # coverage means a spurious root. The check is symmetric — a coverage below 0
+    # or above 1 both signal a non-physical basin — and also covers the free-site
+    # coverage, so a root with each adsorbate in [0, 1] but Σθ > 1 (⇒ free < 0) is
+    # rejected too. Tolerance is loose (1e-4) because this is only a warm start for
+    # stiff systems where fsolve returns ~1e-6 noise on genuinely near-0/near-1
+    # coverages (e.g. water-gas shift); a real spurious root is O(0.1) out of
+    # range. Smaller excursions are clamped back into [0, 1].
+    out_of_range = [a.name for a in ads if theta[a] < -1e-4 or theta[a] > 1.0 + 1e-4]
+    out_of_range += [f"free({s.name})" for s in mkm.sites if free[s] < -1e-4]
+    if out_of_range:
         raise RuntimeError(
-            f"steady_state_numeric (warm-start helper) returned negative coverage(s) "
-            f"{negatives}; the seed landed on a non-physical root. Try a different theta0."
+            f"steady_state_numeric (warm-start helper) returned out-of-range coverage(s) "
+            f"{out_of_range} (outside [0, 1]); the seed landed on a non-physical root. "
+            f"Try a different theta0."
         )
-    x = np.clip(np.asarray(x, dtype=float), 0.0, None)  # clamp tiny negatives to 0
+    x = np.clip(np.asarray(x, dtype=float), 0.0, 1.0)  # clamp tiny excursions into [0, 1]
     return unpack(x)
 
 

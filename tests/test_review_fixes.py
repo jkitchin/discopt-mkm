@@ -2,6 +2,8 @@
 M5, M6). Each test fails on the pre-fix code and passes after.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 import sympy as sp
@@ -712,3 +714,56 @@ def test_numeric_callable_H_without_theta_raises():
     m.step(A + s >> m._by_name["A*"], A=1e5, Ea=0.0)
     with pytest.raises(ValueError, match="coverage-dependent H"):
         numeric.rate_constants(m, 500.0)  # theta=None
+
+
+# --- Round 4: degree of rate control flags an ill-conditioned (non-unit) sum ---
+def _saturated_coox():
+    """CO-oxidation conditions (from the round-4 differential fuzz) that saturate
+    the surface with CO*, where the default-active_tol DRC is ill-conditioned."""
+    from discopt.mkm.model import MicrokineticModel
+
+    m = MicrokineticModel("sat", T=401.5, R=R, Tref=298.15)
+    s = m.site("*", density=1.0)
+    CO = m.gas("CO", H=0.0, S=0.002, composition={"C": 1, "O": 1})
+    O2 = m.gas("O2", H=0.0, S=0.002, composition={"O": 2})
+    CO2 = m.gas("CO2", H=-3.0, S=0.002, composition={"C": 1, "O": 2})
+    m.adsorbate("CO*", site=s, H=-1.190, S=0.0005, composition={"C": 1, "O": 1})
+    m.adsorbate("O*", site=s, H=-0.168, S=0.0005, composition={"O": 1})
+    m.step(CO + s >> m._by_name["CO*"], A=21119.66, Ea=0.0, name="CO ads")
+    m.step(O2 + 2 * s >> 2 * m._by_name["O*"], A=9166.76, Ea=0.0, name="O2 diss")
+    m.step(m._by_name["CO*"] + m._by_name["O*"] >> CO2 + 2 * s,
+           A=3.0528e8, Ea=0.5114, name="surf")
+    m.infer_composition()
+    return m, mk.DifferentialReactor({CO: 1.1191, O2: 1.4480, CO2: 0.0}), CO2
+
+
+@pytest.mark.slow
+def test_drc_flags_ill_conditioned_sum():
+    from discopt.mkm.analysis import degree_of_rate_control
+    from discopt.mkm.analysis.drc import SensitivityUnavailable
+
+    m, reactor, CO2 = _saturated_coox()
+    sol = mk.solve_steady_state(m, reactor)  # default active_tol -> saturated/ill-conditioned
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        try:
+            X = degree_of_rate_control(sol, species=CO2)
+        except SensitivityUnavailable:
+            return  # acceptable: flagged by raising instead of returning garbage
+        # if it returned, it must NOT silently hand back a sum far from 1
+        assert any("sums to" in str(rec.message) for rec in w), (
+            f"saturated DRC returned sum={sum(X.values()):.3f} with no warning"
+        )
+
+
+@pytest.mark.slow
+def test_drc_wellconditioned_does_not_warn():
+    from discopt.mkm.analysis import degree_of_rate_control
+
+    m, reactor = co_oxidation(500.0)
+    sol = mk.solve_steady_state(m, reactor)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        X = degree_of_rate_control(sol, species=m._by_name["CO2"])
+    assert abs(sum(X.values()) - 1.0) < 1e-2
+    assert not any("sums to" in str(rec.message) for rec in w)

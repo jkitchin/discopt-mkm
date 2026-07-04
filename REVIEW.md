@@ -11,6 +11,95 @@ from a single root cause (see T1).
 
 ---
 
+## Round 2 — adversarial re-review of the fixes
+
+After all round-1 fixes landed on `main`, a second correctness pass re-examined
+the ~970 lines of new fix code (four independent reviewers, each verifying by
+execution). **The fixes hold up**: no high- or medium-severity bug was found in
+any of them. The highest-risk introductions were each verified numerically —
+the M1 solution snapshot (0.0 DRC drift across a re-solve), the P1 shared
+rate-expression cache, the P6 banded CV solve (max diff 0.0 vs a dense
+reference), the H1 electrochemical reverse-rate shift (byte-matches the numeric
+reference), the H7 estimator handle reset (recovers parameters exactly), and the
+M12 temperature rescale.
+
+Round 2 produced one genuine (pre-existing, low) bug plus small hardening:
+
+- **formula.py** — `parse_formula("H2O-2")` returned `{H:2, O:2}`: a charge/config
+  digit after a stripped `-` was absorbed as the previous element's subscript.
+  The tokenizer now emits separators as their own tokens so they break
+  element–digit adjacency (`{H:2, O:1}`). Fixed; regression test added.
+- **numeric.py** — the warm-start physical-root check rejected coverages `< 0`
+  but not `> 1`; made symmetric (rejects out-of-`[0,1]` roots, clamps tiny
+  excursions). Hardening.
+- **estimate.py** — documented that explicit-rate (`kf`/`Keq`) fits should pass
+  an `Observation.theta0` warm start (they otherwise risk an `unbounded` solve).
+
+Follow-up cleanup: the M5 least-squares residual check turned out to sit on a
+fully dead path — `method="least_squares"` (and the `auto` fallback to it)
+always returns `unbounded` from the discopt backend, so the check was never
+reached. Rather than keep an absolute-threshold guard on unreachable code, the
+whole least-squares machinery was removed: `method` is now `{"auto",
+"feasibility"}` (equivalent), and a `method="least_squares"` call — reachable
+via the agent/MCP `method` argument — now raises a clear error pointing at
+`coordinates="log"` instead of the confusing `unbounded`. The M12 `T ≤ 4·T_nom`
+cap and the H5 `flux_tol` normalization were left as-is: both fail *loudly*
+rather than returning wrong results.
+
+---
+
+## Round 3 — under-reviewed files + round-2 edge cases
+
+A third pass targeted the code that got the *lightest* scrutiny in rounds 1–2
+(the site-balance / quasi-equilibrium assembly, the transient/PFR DAE solves,
+the AD/sensitivity core behind DRC, the symbolic LHHW derivation, and
+discovery/rendering) plus adversarial edge-cases of the round-2 diff. Three
+reviewers, all verifying by execution — **no high- or medium-severity bug was
+found anywhere**. The AD machinery was cross-checked against independent
+finite-difference re-solves (DRC/TRC/apparent orders all match to ~8 digits),
+and the symbolic rate law matched hand-known Langmuir–Hinshelwood forms.
+
+Round 3 produced only low/doc-level items, all fixed:
+
+- **examples.py** — the shipped `adiabatic_cstr` example failed `validate()`:
+  its product `"B"` infers to element boron while reactant `"A"` infers to no
+  element, a false imbalance. Gave `A`/`B`/`A*` an explicit shared
+  `composition` (it is an A→B isomerization), so the example now validates.
+- **numeric.py** — extended the warm-start physical-root check to the free-site
+  coverage, so a spurious root with each θ ≤ 1 but Σθ > 1 (⇒ free < 0) is also
+  rejected (the round-2 change only covered individual adsorbate coverages).
+- **drc.py / mcp_server.py** — doc fixes: the thermodynamic-rate-control
+  docstring's leading formula had a stray `1/(k_BT)` factor (the code and the
+  second formula were correct), and the MCP `solve` tool still listed the
+  removed `least_squares` method.
+
+---
+
+## Round 4 — differential / property-based fuzz
+
+Rather than a fourth static re-read (rounds 1–3 had saturated that), round 4
+used a *different* technique: a differential fuzz cross-checking the two
+independent solve implementations (the discopt symbolic/AD path vs. the SciPy
+numeric path) plus physical invariants — coverage agreement, TOF agreement,
+site balance, DRC-sums-to-1, detailed balance `kf/kr = Keq`, and apparent order
+vs. finite difference — over dozens of randomized CO-oxidation mechanisms.
+
+**No correctness bug.** Every flagged case was investigated and confirmed
+benign: genuine steady-state **multiplicity** (CO-oxidation bistability — the
+numeric solver finds two real roots from different seeds), the code correctly
+**declining** to return a wrong answer (`SensitivityUnavailable` / the numeric
+out-of-range guard firing), or the already-documented **`active_tol`**
+limitation at saturated coverages (DRC garbage at the default `1e-3`, exactly
+`1.0` at `1e-13`, as the docstring instructs). Where a unique well-conditioned
+steady state exists, the two solvers agree and every invariant holds.
+
+One small hardening the fuzz motivated: `degree_of_rate_control` now **warns**
+when its values do not sum to ~1 (Campbell's theorem), turning the previously
+silent garbage DRC at a saturated/ill-conditioned point into an actionable
+signal pointing at a smaller `active_tol` or `coordinates="log"`.
+
+---
+
 ## Resolution status
 
 All findings were addressed across four commits on `claude/module-review-ibadto`.

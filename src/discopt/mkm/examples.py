@@ -235,9 +235,12 @@ def adiabatic_cstr(T_in: float = 500.0):
 
     m = Model("adiabatic_cstr", T=T_in, R=8.314, Tref=298.15)
     s = m.site("cat", density=1.0)
-    A = m.gas("A", H=0.0, S=0.0, Cp=30.0)
-    B = m.gas("B", H=-12000.0, S=0.0, Cp=30.0)  # -12 kJ/mol overall
-    As = m.adsorbate("A*", site=s, H=-6000.0, S=0.0, Cp=30.0)
+    # A -> B is an isomerization: one abstract atom "R" on every species. Set the
+    # composition explicitly so element-balance validation passes — inferring from
+    # the names would read "B" as boron and "A" as no element (a false imbalance).
+    A = m.gas("A", H=0.0, S=0.0, Cp=30.0, composition={"R": 1})
+    B = m.gas("B", H=-12000.0, S=0.0, Cp=30.0, composition={"R": 1})  # -12 kJ/mol overall
+    As = m.adsorbate("A*", site=s, H=-6000.0, S=0.0, Cp=30.0, composition={"R": 1})
 
     # comparable rate constants (no fast-adsorption stiffness)
     m.step(A + s >> As, A=1e2, Ea=0.0, name="adsorption")

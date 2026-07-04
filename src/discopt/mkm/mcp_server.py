@@ -43,7 +43,7 @@ def solve(spec: dict, coordinates: str = "linear", method: str = "auto") -> dict
     """Solve the steady state. Returns coverages, free-site coverage, gas concentrations,
     rates of progress, and status. Use coordinates='log' for stiff near-equilibrium
     mechanisms (e.g. water-gas shift). method is the linear-coordinate solver strategy
-    ('auto', 'feasibility', or 'least_squares')."""
+    ('auto' or 'feasibility')."""
     return agent.solve(spec, coordinates=coordinates, method=method)
 
 
