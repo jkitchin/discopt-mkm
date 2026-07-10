@@ -152,6 +152,125 @@ class MKMEstimationResult:
         return "\n".join(lines)
 
 
+def wire_fit_constants(m: dm.Model, mkm: MicrokineticModel, fit: list[FitParam]):
+    """Wire every kinetic/thermodynamic constant of ``mkm`` into model ``m`` for a fit.
+
+    Fitted constants become shared discopt **Variables** (log-space where
+    :meth:`FitParam.is_log` says so, with the effective ``exp(u)`` expression
+    attached to the parameter handle the kinetics code reads); every other
+    constant becomes a fixed ``Parameter``. Resets the stale handles left on the
+    shared Species/Reaction objects by any earlier solve (each fit builds a
+    fresh discopt model), exactly as ``model.wire_parameters`` does — otherwise
+    a previously-solved model mixes parameter handles from two different discopt
+    models.
+
+    Shared by the steady-state (:func:`fit_kinetics`) and transient
+    (:func:`~discopt.mkm.transient_fit.fit_kinetics_transient`) estimators.
+
+    Returns
+    -------
+    (unknown, log_names)
+        ``unknown`` maps each fit-parameter name to its discopt Variable (in
+        ``fit`` order); ``log_names`` is the subset fit in log space.
+    """
+    # 1) fitted constants -> shared Variables; attach effective expression to the handle
+    unknown: dict[str, dm.Variable] = {}
+    log_names: set[str] = set()
+    for fp in fit:
+        name = fp.resolved_name()
+        if fp.is_log():
+            if fp.lb <= 0.0:
+                raise ValueError(
+                    f"fit parameter {name!r} is fit in log space but has lb={fp.lb:g} <= 0; "
+                    "log(lb) is undefined. Give a strictly positive lower bound (or set "
+                    "log=False for a linear fit).")
+            var = m.continuous(name, lb=float(np.log(fp.lb)), ub=float(np.log(fp.ub)))
+            setattr(fp.target, _ATTR_TO_HANDLE[fp.attr], dm.exp(var))
+            log_names.add(name)
+        else:
+            var = m.continuous(name, lb=fp.lb, ub=fp.ub)
+            setattr(fp.target, _ATTR_TO_HANDLE[fp.attr], var)
+        unknown[name] = var
+
+    # 2) every non-fitted constant -> shared fixed Parameter
+    fitted = {(id(fp.target), fp.attr) for fp in fit}
+    for sp in mkm.species:
+        sp._interaction_params = []  # reset lateral-interaction handles
+        if (id(sp), "H") not in fitted:
+            sp.H_param = m.parameter(f"H_{_safe(sp.name)}", sp.H)
+        if (id(sp), "S") not in fitted:
+            sp.S_param = m.parameter(f"S_{_safe(sp.name)}", sp.S)
+        sp.Cp_param = (
+            m.parameter(f"Cp_{_safe(sp.name)}", sp.Cp)
+            if (sp.Cp != 0.0 and (id(sp), "Cp") not in fitted)
+            else getattr(sp, "Cp_param", None)
+        )
+        sp.dG_param = None  # not used in estimation
+    # lateral interactions: one shared eps parameter per pair
+    has_interactions = bool(getattr(mkm, "_interactions", []))
+    for k, (a, b, eps) in enumerate(getattr(mkm, "_interactions", [])):
+        eps_param = m.parameter(f"eps_{k}", eps)
+        a._interaction_params.append((b, eps_param))
+        if a is not b:
+            b._interaction_params.append((a, eps_param))
+    for j, rxn in enumerate(mkm.reactions):
+        # reset per-reaction handles (fresh model each fit); keep any handle
+        # that step 1 already wired as a fitted Variable.
+        rxn.alpha_param = None
+        if (id(rxn), "beta") not in fitted:
+            rxn.beta_param = m.parameter(f"beta_{j}", rxn.beta) if rxn.is_electrochemical else None
+        if rxn.explicit_rate:
+            # explicit kf/Keq step (e.g. from a DFT/SI table): k_forward reads
+            # kf_param and k_reverse reads Keq_param, so both must be wired.
+            if (id(rxn), "kf") not in fitted:
+                rxn.kf_param = m.parameter(f"kf_{j}", rxn.kf)
+            if not rxn.irreversible and (id(rxn), "Keq") not in fitted:
+                rxn.Keq_param = m.parameter(f"Keq_{j}", rxn.Keq)
+        else:
+            if (id(rxn), "A") not in fitted:
+                rxn.A_param = m.parameter(f"A_{j}", rxn.A)
+            if (id(rxn), "Ea") not in fitted:
+                rxn.Ea_param = m.parameter(f"Ea_{j}", rxn.Ea)
+            # BEP coverage dependence of the barrier (only with interactions)
+            if has_interactions:
+                rxn.alpha_param = m.parameter(f"alpha_{j}", rxn.alpha)
+    return unknown, log_names
+
+
+def physical_units_result(raw, fit: list[FitParam]) -> MKMEstimationResult:
+    """Back-transform a raw discopt ``EstimationResult`` to physical units.
+
+    Log-fit parameters come back as ``exp(u)`` with delta-method standard
+    errors (``se(exp(u)) ~ exp(u) se(u)``) and exponentiated interval ends;
+    linear-fit parameters pass through. Shared by the steady-state and
+    transient estimators.
+    """
+    log_names = {fp.resolved_name() for fp in fit if fp.is_log()}
+    raw_se = raw.standard_errors
+    raw_ci = raw.confidence_intervals
+    params, ses, cis = {}, {}, {}
+    for name in raw.parameter_names:
+        u = raw.parameters[name]
+        if name in log_names:
+            val = float(np.exp(u))
+            params[name] = val
+            ses[name] = val * float(raw_se[name])
+            lo, hi = raw_ci[name]
+            cis[name] = (float(np.exp(lo)), float(np.exp(hi)))
+        else:
+            params[name] = float(u)
+            ses[name] = float(raw_se[name])
+            cis[name] = tuple(float(x) for x in raw_ci[name])
+    return MKMEstimationResult(
+        parameters=params,
+        std_errors=ses,
+        confidence_intervals=cis,
+        objective=float(raw.objective),
+        n_observations=int(raw.n_observations),
+        raw=raw,
+    )
+
+
 class _MKMExperiment(Experiment):
     """discopt Experiment that builds a multi-condition simultaneous MKM fit."""
 
@@ -180,74 +299,11 @@ class _MKMExperiment(Experiment):
             raise NotImplementedError("fitting models with equilibrated steps is not supported")
         m = dm.Model(f"{mkm.name}_fit")
 
-        # 1) fitted constants -> shared Variables; attach effective expression to the handle
-        unknown: dict[str, dm.Variable] = {}
-        log_names: set[str] = set()
+        # fitted constants -> shared Variables, everything else -> fixed Parameters
+        unknown, log_names = wire_fit_constants(m, mkm, self.fit)
         init_sol: dict = {}   # warm start (Variable -> value) for the estimation solve
-        for fp in self.fit:
-            name = fp.resolved_name()
-            if fp.is_log():
-                if fp.lb <= 0.0:
-                    raise ValueError(
-                        f"fit parameter {name!r} is fit in log space but has lb={fp.lb:g} <= 0; "
-                        "log(lb) is undefined. Give a strictly positive lower bound (or set "
-                        "log=False for a linear fit).")
-                var = m.continuous(name, lb=float(np.log(fp.lb)), ub=float(np.log(fp.ub)))
-                setattr(fp.target, _ATTR_TO_HANDLE[fp.attr], dm.exp(var))
-                log_names.add(name)
-            else:
-                var = m.continuous(name, lb=fp.lb, ub=fp.ub)
-                setattr(fp.target, _ATTR_TO_HANDLE[fp.attr], var)
-            unknown[name] = var
 
-        # 2) every non-fitted constant -> shared fixed Parameter. Reset the stale
-        # handles left on the shared Species/Reaction objects by any earlier solve
-        # (each fit builds a fresh discopt model), exactly as
-        # ``model.wire_parameters`` does — otherwise a previously-solved model
-        # mixes parameter handles from two different discopt models.
-        fitted = {(id(fp.target), fp.attr) for fp in self.fit}
-        for sp in mkm.species:
-            sp._interaction_params = []  # reset lateral-interaction handles
-            if (id(sp), "H") not in fitted:
-                sp.H_param = m.parameter(f"H_{_safe(sp.name)}", sp.H)
-            if (id(sp), "S") not in fitted:
-                sp.S_param = m.parameter(f"S_{_safe(sp.name)}", sp.S)
-            sp.Cp_param = (
-                m.parameter(f"Cp_{_safe(sp.name)}", sp.Cp)
-                if (sp.Cp != 0.0 and (id(sp), "Cp") not in fitted)
-                else getattr(sp, "Cp_param", None)
-            )
-            sp.dG_param = None  # not used in estimation
-        # lateral interactions: one shared eps parameter per pair
-        has_interactions = bool(getattr(mkm, "_interactions", []))
-        for k, (a, b, eps) in enumerate(getattr(mkm, "_interactions", [])):
-            eps_param = m.parameter(f"eps_{k}", eps)
-            a._interaction_params.append((b, eps_param))
-            if a is not b:
-                b._interaction_params.append((a, eps_param))
-        for j, rxn in enumerate(mkm.reactions):
-            # reset per-reaction handles (fresh model each fit); keep any handle
-            # that step 1 already wired as a fitted Variable.
-            rxn.alpha_param = None
-            if (id(rxn), "beta") not in fitted:
-                rxn.beta_param = m.parameter(f"beta_{j}", rxn.beta) if rxn.is_electrochemical else None
-            if rxn.explicit_rate:
-                # explicit kf/Keq step (e.g. from a DFT/SI table): k_forward reads
-                # kf_param and k_reverse reads Keq_param, so both must be wired.
-                if (id(rxn), "kf") not in fitted:
-                    rxn.kf_param = m.parameter(f"kf_{j}", rxn.kf)
-                if not rxn.irreversible and (id(rxn), "Keq") not in fitted:
-                    rxn.Keq_param = m.parameter(f"Keq_{j}", rxn.Keq)
-            else:
-                if (id(rxn), "A") not in fitted:
-                    rxn.A_param = m.parameter(f"A_{j}", rxn.A)
-                if (id(rxn), "Ea") not in fitted:
-                    rxn.Ea_param = m.parameter(f"Ea_{j}", rxn.Ea)
-                # BEP coverage dependence of the barrier (only with interactions)
-                if has_interactions:
-                    rxn.alpha_param = m.parameter(f"alpha_{j}", rxn.alpha)
-
-        # 3) one steady-state block + response per observation
+        # one steady-state block + response per observation
         responses: dict = {}
         measurement_error: dict = {}
         for i, obs in enumerate(self.observations):
@@ -350,28 +406,4 @@ def fit_kinetics(
     raw = estimate_parameters(experiment, data, solver_options=opts)
 
     # back-transform log-fit parameters to physical units (delta method)
-    log_names = {fp.resolved_name() for fp in fit if fp.is_log()}
-    raw_se = raw.standard_errors
-    raw_ci = raw.confidence_intervals
-    params, ses, cis = {}, {}, {}
-    for name in raw.parameter_names:
-        u = raw.parameters[name]
-        if name in log_names:
-            val = float(np.exp(u))
-            params[name] = val
-            ses[name] = val * float(raw_se[name])  # se(exp(u)) ~ exp(u) se(u)
-            lo, hi = raw_ci[name]
-            cis[name] = (float(np.exp(lo)), float(np.exp(hi)))
-        else:
-            params[name] = float(u)
-            ses[name] = float(raw_se[name])
-            cis[name] = tuple(float(x) for x in raw_ci[name])
-
-    return MKMEstimationResult(
-        parameters=params,
-        std_errors=ses,
-        confidence_intervals=cis,
-        objective=float(raw.objective),
-        n_observations=int(raw.n_observations),
-        raw=raw,
-    )
+    return physical_units_result(raw, fit)

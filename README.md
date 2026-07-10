@@ -103,6 +103,40 @@ result = mk.fit_kinetics(m, obs, fit)
 print(result.parameters, result.confidence_intervals)
 ```
 
+### Transient (time-series) fits
+
+`fit_kinetics_transient` is the transient counterpart: fit constants to
+measured *time series* (e.g. a product rate under a PRBS/pulse-modulated feed).
+Each run's coverage ODEs are transcribed to collocation constraints
+(`discopt.dae`), with element boundaries aligned to the switching times of the
+piecewise-constant inputs, and one NLP solves for the shared constants and all
+coverage trajectories simultaneously: the all-at-once alternative to the
+integrate-inside-`curve_fit` shooting pattern of `10_prbs_fitting.ipynb`. The
+model response is interpolated to the exact measurement times (irregular
+sampling needs no grid alignment), trajectories are warm-started from a numeric
+implicit-Radau integration at the nominal constants, and multi-run fits at
+different temperatures share `A`/`Ea` for Arrhenius-consistent estimates.
+
+```python
+runs = [
+    mk.TransientRun(
+        response=CO2, t=t_meas, y=rate_meas, T=T,          # measured r_CO2(t)
+        pressures={CO: (t_switch, P_co_values),            # piecewise-constant PRBS input
+                   O2: 0.5, CO2: 0.0},
+        sigma=0.01, t_span=(0.0, 2.0),
+    )
+    for T, t_meas, rate_meas in experiments
+]
+result = mk.fit_kinetics_transient(m, runs, fit, nfe=40)
+result.predictions["run0"]           # fitted response at the measurement times
+result.trajectories["run0"]["CO*"]   # fitted coverage trajectory
+```
+
+A `GasSpecies` response means its net production rate was measured; an
+`Adsorbate` response means its coverage was (for coverage-only data the
+FIM-based confidence intervals degenerate, with an explanatory warning, while the
+point estimates are unaffected).
+
 ## Quasi-equilibrium approximation
 
 Mark the fast steps `equilibrated=True` to apply the quasi-equilibrium
@@ -361,10 +395,13 @@ Transient solves use discopt's orthogonal-collocation DAE builder
   sensitivity matrix; `degree_of_rate_control` then raises
   `SensitivityUnavailable`. Use `coordinates="log"` (and a warm start) rather
   than forcing a linear solve.
-- `fit_kinetics` returns discopt's Fisher-information-based covariance, which
-  uses the explicit response Jacobian; the point estimates are exact (from the
-  simultaneous least-squares solve) while the reported standard errors are this
-  FIM approximation.
+- `fit_kinetics` and `fit_kinetics_transient` return discopt's
+  Fisher-information-based covariance, which uses the explicit response
+  Jacobian; the point estimates are exact (from the simultaneous least-squares
+  solve) while the reported standard errors are this FIM approximation. For a
+  transient fit to coverage-only data the explicit Jacobian is identically zero
+  and the covariance degenerates (a warning is raised); the point estimates are
+  unaffected.
 - A strongly exothermic, high-activation-energy adiabatic PFR develops a sharp
   ignition front that orthogonal collocation resolves poorly; keep the per-pass
   temperature rise modest (lower catalyst loading / shorter reactor) or refine

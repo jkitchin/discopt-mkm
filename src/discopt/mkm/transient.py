@@ -66,12 +66,18 @@ def _build_x0(m: dm.Model, fills: dict) -> np.ndarray:
     bound-midpoints (NOT discopt's universal clip-to-10) for the rest.
 
     Needed for absolute-scale states like temperature (~500 K), which discopt's
-    default ``_safe_x0`` would otherwise initialize near 10.
+    default ``_safe_x0`` would otherwise initialize near 10. A fill may be a
+    scalar (broadcast over the variable) or an array matching the variable's
+    shape (e.g. a whole warm-start trajectory); either way it is clipped into
+    the variable's bounds.
     """
     parts = []
     for v in m._variables:
         if v.name in fills:
-            parts.append(np.full(v.size, float(fills[v.name])))
+            lb = np.asarray(v.lb, float).reshape(-1)
+            ub = np.asarray(v.ub, float).reshape(-1)
+            val = np.broadcast_to(np.asarray(fills[v.name], float), v.shape).reshape(-1)
+            parts.append(np.clip(val, lb, ub))
         else:
             lb = np.asarray(v.lb, float).reshape(-1)
             ub = np.asarray(v.ub, float).reshape(-1)
@@ -109,7 +115,27 @@ def _solve_feasibility(
         x_dict[v.name] = val.reshape(v.shape) if v.shape != () else val
         offset += size
     status = "optimal" if nlp_result.status == SolveStatus.OPTIMAL else nlp_result.status.value
+    if status == "unbounded" and _max_constraint_violation(evaluator, x_star) < 1e-6:
+        # POUNCE reports Ipopt code 3 (Search_Direction_Becomes_Too_Small) when
+        # the IPM stalls at machine precision — typically at a fully converged
+        # point — and discopt's status table maps that code to "unbounded". Our
+        # objectives here are bounded below (0 for a feasibility problem, a sum
+        # of squares for a fit), so a genuinely unbounded ray is impossible at a
+        # feasible point: verify feasibility of the returned iterate and
+        # reclassify, rather than trusting the label and failing the solve.
+        status = "feasible"
     return _FeasibilityResult(status, x_dict)
+
+
+def _max_constraint_violation(evaluator, x: np.ndarray) -> float:
+    """Max constraint violation of ``x`` against the model's cl/cu bounds."""
+    from discopt.solvers.nlp_ipopt import _infer_constraint_bounds
+
+    if evaluator.n_constraints == 0:
+        return 0.0
+    g = np.asarray(evaluator.evaluate_constraints(x), dtype=float)
+    cl, cu = _infer_constraint_bounds(evaluator)
+    return float(np.max(np.clip(np.maximum(cl - g, g - cu), 0.0, None)))
 
 
 @dataclass
