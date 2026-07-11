@@ -1,0 +1,62 @@
+name: book
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # allow manual runs from the Actions tab
+  workflow_dispatch:
+
+# Least-privilege token; the deploy job needs pages + id-token.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  # one book build per ref; a new push cancels the in-flight one
+  group: book-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Jupyter Book
+        # Pin to the classic (Sphinx-based) Jupyter Book v1 — this repo uses the
+        # v1 _config.yml/_toc.yml format; the unpinned package now resolves to the
+        # incompatible MyST-based v2. The notebooks are rendered from their
+        # committed outputs (execute_notebooks: "off"), so only the book builder
+        # is needed — not the discopt-mkm package or its heavy solver stack.
+        run: pip install "jupyter-book<2"
+
+      - name: Build the book
+        # Notebook-heavy books emit many benign MyST warnings, so we do NOT pass
+        # --warningiserror. A real failure (missing file, bad TOC) exits non-zero.
+        run: jupyter-book build . --path-output .
+
+      - name: Upload the built book as a Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _build/html
+
+  deploy:
+    # only publish from main; PRs build (above) but don't deploy
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

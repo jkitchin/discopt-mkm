@@ -1,0 +1,42 @@
+# Jupyter Book configuration
+# Build locally with:  jupyter-book build .
+# Published by .github/workflows/book.yml to GitHub Pages.
+#
+# The book root is the repository root so the TOC can reference the example
+# notebooks in examples/ and share references.bib. `only_build_toc_files: true`
+# keeps README/REVIEW/AGENTS and other stray markdown out of the build.
+title: discopt-mkm
+author: John Kitchin
+only_build_toc_files: true
+
+# The example notebooks are committed with their outputs and contain expensive
+# NLP solves (the test suite alone runs ~8-9 min). We render the *saved* outputs
+# rather than re-executing during the book build, so the CI build stays fast and
+# deterministic. Re-run the notebooks locally to refresh their outputs.
+execute:
+  execute_notebooks: "off"
+
+# Bibliography (shared with the package's references.bib).
+bibtex_bibfiles:
+  - references.bib
+
+# Repository / issue buttons in the book header.
+repository:
+  url: https://github.com/jkitchin/discopt-mkm
+  branch: main
+
+html:
+  use_issues_button: true
+  use_repository_button: true
+
+# LaTeX-style math and other MyST extensions used in the notebooks/markdown.
+parse:
+  myst_enable_extensions:
+    - amsmath
+    - dollarmath
+    - colon_fence
+
+sphinx:
+  config:
+    nb_execution_show_tb: true
+    html_show_copyright: false

@@ -1,0 +1,27 @@
+# Jupyter Book table of contents
+# Format docs: https://jupyterbook.org/customize/toc.html
+format: jb-book
+root: README
+title: Home
+parts:
+  - caption: Worked examples
+    chapters:
+      - file: examples/01_co_oxidation_drc
+      - file: examples/02_transient
+      - file: examples/03_estimation
+      - file: examples/04_water_gas_shift_drc
+      - file: examples/05_pfr
+      - file: examples/06_nonisothermal
+      - file: examples/07_rendering_and_structure
+      - file: examples/08_apparent_kinetics
+      - file: examples/09_figures_and_report
+      - file: examples/10_prbs_fitting
+      - file: examples/11_mechanism_discovery
+      - file: examples/12_multitemperature_fit
+      - file: examples/13_selectivity
+      - file: examples/14_mechanism_selection
+      - file: examples/15_tpd
+      - file: examples/16_orr_electrochemistry
+      - file: examples/17_rde_outer_sphere
+      - file: examples/18_cyclic_voltammetry
+      - file: examples/19_transient_fitting
