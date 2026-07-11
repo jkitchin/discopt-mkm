@@ -58,6 +58,11 @@ from discopt.mkm.species import Adsorbate, GasSpecies, Site, Species
 from discopt.mkm.steady_state import SteadyStateSolution, solve_steady_state
 from discopt.mkm.thermo_models import GeneralThermo, NASA7, Shomate, ThermoModel
 from discopt.mkm.transient import TransientSolution, solve_transient
+from discopt.mkm.transient_fit import (
+    TransientFitResult,
+    TransientRun,
+    fit_kinetics_transient,
+)
 
 # user-facing alias matching the documented `mk.Model(...)` syntax
 Model = MicrokineticModel
@@ -111,6 +116,9 @@ __all__ = [
     "Observation",
     "fit_kinetics",
     "MKMEstimationResult",
+    "TransientRun",
+    "fit_kinetics_transient",
+    "TransientFitResult",
     "ThermoModel",
     "NASA7",
     "Shomate",

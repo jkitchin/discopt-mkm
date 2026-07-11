@@ -103,6 +103,41 @@ result = mk.fit_kinetics(m, obs, fit)
 print(result.parameters, result.confidence_intervals)
 ```
 
+### Transient (time-series) fits
+
+`fit_kinetics_transient` is the transient counterpart: fit constants to
+measured *time series* (e.g. a product rate under a PRBS/pulse-modulated feed).
+Each run's coverage ODEs are transcribed to collocation constraints
+(`discopt.dae`), with element boundaries aligned to the switching times of the
+piecewise-constant inputs, and one NLP solves for the shared constants and all
+coverage trajectories simultaneously: the all-at-once alternative to the
+integrate-inside-`curve_fit` shooting pattern of `10_prbs_fitting.ipynb`. The
+model response is interpolated to the exact measurement times (irregular
+sampling needs no grid alignment), trajectories are warm-started from a numeric
+implicit-Radau integration at the nominal constants, and multi-run fits at
+different temperatures share `A`/`Ea` for Arrhenius-consistent estimates.
+
+```python
+runs = [
+    mk.TransientRun(
+        response=CO2, t=t_meas, y=rate_meas, T=T,          # measured r_CO2(t)
+        pressures={CO: (t_switch, P_co_values),            # piecewise-constant PRBS input
+                   O2: 0.5, CO2: 0.0},
+        sigma=0.01, t_span=(0.0, 2.0),
+    )
+    for T, t_meas, rate_meas in experiments
+]
+result = mk.fit_kinetics_transient(m, runs, fit, nfe=40)
+result.predictions["run0"]           # fitted response at the measurement times
+result.trajectories["run0"]["CO*"]   # fitted coverage trajectory
+```
+
+A `GasSpecies` response means its net production rate was measured; an
+`Adsorbate` response means its coverage was. Confidence intervals use the full
+trajectory sensitivity `dr/du = ∂r/∂u + (∂r/∂x)(dx/du)` (implicit function
+theorem on the collocation system), so constants that act on the response only
+through the coverage dynamics, the typical transient-fit case, are covered.
+
 ## Quasi-equilibrium approximation
 
 Mark the fast steps `equilibrated=True` to apply the quasi-equilibrium
@@ -256,6 +291,11 @@ Executed Jupyter notebooks in `examples/`:
   cyclic voltammogram from transient semi-infinite diffusion with a Butler-Volmer
   boundary condition, showing reversible/quasi-reversible/irreversible shapes, the
   peak separation, and Randles-Sevcik `i_p ∝ √v` scaling.
+- `19_transient_fitting.ipynb` — the PRBS experiment of notebook 10 refit with
+  the packaged **simultaneous** API `fit_kinetics_transient`: one collocation
+  NLP for the constants and the coverage trajectories, physical-unit confidence
+  intervals from the full trajectory sensitivity, and a side-by-side comparison
+  (estimates and wall time) with the shooting fit on the same data.
 
 ## Mechanism selection
 
@@ -364,7 +404,19 @@ Transient solves use discopt's orthogonal-collocation DAE builder
 - `fit_kinetics` returns discopt's Fisher-information-based covariance, which
   uses the explicit response Jacobian; the point estimates are exact (from the
   simultaneous least-squares solve) while the reported standard errors are this
-  FIM approximation.
+  FIM approximation. `fit_kinetics_transient` improves on this with the full
+  (implicit-function-theorem) trajectory sensitivity, since a transient
+  response is mostly sensitive to the constants through the coverage
+  trajectory; a singular-FIM warning there indicates a constant that is
+  genuinely not identifiable from the data.
+- `fit_kinetics_transient` solve time is set by the number of *input switches*,
+  not the number of measurements: every switch is a mandatory element boundary,
+  and discopt's Hessian-sparsity detection currently records nonlinear coupling
+  at whole-array granularity for vectorized DAE constraints, so the NLP
+  iteration cost grows superlinearly with the element count. Runs with up to
+  ~10 switches solve in seconds; a long PRBS train (30+ switches, ~120
+  elements) takes minutes. Split long sequences into several runs (they share
+  the fitted constants) until that upstream limitation is lifted.
 - A strongly exothermic, high-activation-energy adiabatic PFR develops a sharp
   ignition front that orthogonal collocation resolves poorly; keep the per-pass
   temperature rise modest (lower catalyst loading / shorter reactor) or refine
