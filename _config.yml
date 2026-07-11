@@ -7,6 +7,7 @@
 # keeps README/REVIEW/AGENTS and other stray markdown out of the build.
 title: discopt-mkm
 author: John Kitchin
+logo: images/logo-512.png
 only_build_toc_files: true
 
 # The example notebooks are committed with their outputs and contain expensive
@@ -26,6 +27,7 @@ repository:
   branch: main
 
 html:
+  favicon: images/favicon-32.png
   use_issues_button: true
   use_repository_button: true
 

@@ -1,3 +1,9 @@
+<div align="center">
+
+![discopt-mkm logo](images/logo-banner.png)
+
+</div>
+
 # discopt-mkm
 
 [![tests](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml/badge.svg)](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml)
