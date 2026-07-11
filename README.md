@@ -133,9 +133,10 @@ result.trajectories["run0"]["CO*"]   # fitted coverage trajectory
 ```
 
 A `GasSpecies` response means its net production rate was measured; an
-`Adsorbate` response means its coverage was (for coverage-only data the
-FIM-based confidence intervals degenerate, with an explanatory warning, while the
-point estimates are unaffected).
+`Adsorbate` response means its coverage was. Confidence intervals use the full
+trajectory sensitivity `dr/du = ∂r/∂u + (∂r/∂x)(dx/du)` (implicit function
+theorem on the collocation system), so constants that act on the response only
+through the coverage dynamics, the typical transient-fit case, are covered.
 
 ## Quasi-equilibrium approximation
 
@@ -290,6 +291,11 @@ Executed Jupyter notebooks in `examples/`:
   cyclic voltammogram from transient semi-infinite diffusion with a Butler-Volmer
   boundary condition, showing reversible/quasi-reversible/irreversible shapes, the
   peak separation, and Randles-Sevcik `i_p ∝ √v` scaling.
+- `19_transient_fitting.ipynb` — the PRBS experiment of notebook 10 refit with
+  the packaged **simultaneous** API `fit_kinetics_transient`: one collocation
+  NLP for the constants and the coverage trajectories, physical-unit confidence
+  intervals from the full trajectory sensitivity, and a side-by-side comparison
+  (estimates and wall time) with the shooting fit on the same data.
 
 ## Mechanism selection
 
@@ -395,13 +401,22 @@ Transient solves use discopt's orthogonal-collocation DAE builder
   sensitivity matrix; `degree_of_rate_control` then raises
   `SensitivityUnavailable`. Use `coordinates="log"` (and a warm start) rather
   than forcing a linear solve.
-- `fit_kinetics` and `fit_kinetics_transient` return discopt's
-  Fisher-information-based covariance, which uses the explicit response
-  Jacobian; the point estimates are exact (from the simultaneous least-squares
-  solve) while the reported standard errors are this FIM approximation. For a
-  transient fit to coverage-only data the explicit Jacobian is identically zero
-  and the covariance degenerates (a warning is raised); the point estimates are
-  unaffected.
+- `fit_kinetics` returns discopt's Fisher-information-based covariance, which
+  uses the explicit response Jacobian; the point estimates are exact (from the
+  simultaneous least-squares solve) while the reported standard errors are this
+  FIM approximation. `fit_kinetics_transient` improves on this with the full
+  (implicit-function-theorem) trajectory sensitivity, since a transient
+  response is mostly sensitive to the constants through the coverage
+  trajectory; a singular-FIM warning there indicates a constant that is
+  genuinely not identifiable from the data.
+- `fit_kinetics_transient` solve time is set by the number of *input switches*,
+  not the number of measurements: every switch is a mandatory element boundary,
+  and discopt's Hessian-sparsity detection currently records nonlinear coupling
+  at whole-array granularity for vectorized DAE constraints, so the NLP
+  iteration cost grows superlinearly with the element count. Runs with up to
+  ~10 switches solve in seconds; a long PRBS train (30+ switches, ~120
+  elements) takes minutes. Split long sequences into several runs (they share
+  the fitted constants) until that upstream limitation is lifted.
 - A strongly exothermic, high-activation-energy adiabatic PFR develops a sharp
   ignition front that orthogonal collocation resolves poorly; keep the per-pass
   temperature rise modest (lower catalyst loading / shorter reactor) or refine

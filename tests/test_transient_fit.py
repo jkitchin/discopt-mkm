@@ -194,10 +194,11 @@ def test_multi_run_shared_A_and_Ea():
 
 
 @pytest.mark.slow
-def test_coverage_response_point_estimate():
-    """Fitting a measured *coverage* trajectory recovers the constant; the
-    FIM (explicit-Jacobian convention) is degenerate for pure-state responses,
-    which is warned about."""
+def test_coverage_response():
+    """Fitting a measured *coverage* trajectory recovers the constant. The
+    coverage response contains no fitted constant explicitly; its entire
+    sensitivity flows through the trajectory, so this exercises the
+    implicit-function-theorem part of the FIM."""
     m, _ = co_oxidation(T=500.0)
     CO, O2, CO2 = m._by_name["CO"], m._by_name["O2"], m._by_name["CO2"]
     COs = m._by_name["CO*"]
@@ -214,8 +215,12 @@ def test_coverage_response_point_estimate():
         sigma=0.005, t_span=(0.0, 2.0),
     )
     fit = [mk.FitParam(surf, "A", lb=1e6, ub=1e10, init=3e7)]
-    with pytest.warns(UserWarning, match="Fisher information matrix is singular"):
-        res = mk.fit_kinetics_transient(m, [run], fit, nfe=16)
+    res = mk.fit_kinetics_transient(m, [run], fit, nfe=16)
 
     A_key = next(k for k in res.parameters if k.startswith("A_"))
     assert res.parameters[A_key] == pytest.approx(1e8, rel=0.05)
+    # the implicit trajectory sensitivity makes the FIM non-degenerate even
+    # though the response expression contains no fitted variable
+    assert res.std_errors[A_key] > 0
+    lo, hi = res.confidence_intervals[A_key]
+    assert lo < res.parameters[A_key] < hi and np.isfinite(lo) and np.isfinite(hi)

@@ -29,10 +29,15 @@ Design
 - The coverage trajectories are warm-started from a numeric (implicit-Radau)
   integration at the nominal parameter values (the transient analog of
   ``Observation.theta0``), and the fitted variables start at ``FitParam.init``.
-- Covariance and 95% confidence intervals come from the same
-  Fisher-information convention as :func:`~discopt.mkm.estimate.fit_kinetics`
-  (explicit response Jacobian w.r.t. the fitted variables), reported in
-  physical units via the delta method.
+- Covariance and 95% confidence intervals come from the Fisher information
+  ``J^T diag(1/sigma^2) J`` with the **full trajectory sensitivity**
+  ``dr/du = ∂r/∂u + (∂r/∂x)(dx/du)``: the implicit dependence of the coverage
+  trajectory on the constants is recovered through the collocation system by
+  the implicit function theorem (one sparse LU of the constraint Jacobian).
+  A transient response is mostly (for a measured coverage: entirely) sensitive
+  to a rate constant through the trajectory, so the explicit-Jacobian
+  convention of the steady-state estimator would be blind here. Results are
+  reported in physical units via the delta method.
 """
 
 from __future__ import annotations
@@ -204,38 +209,48 @@ def _element_boundaries(t0: float, tf: float, switches, nfe: int) -> np.ndarray:
     return np.append(np.concatenate(parts), tf)
 
 
-def _interp_matrices(dae: DAEBuilder, t_data: np.ndarray) -> list[np.ndarray]:
-    """Collocation-polynomial interpolation matrices onto arbitrary times.
+def _interp_blocks(dae: DAEBuilder, t_data: np.ndarray) -> list[tuple[int, np.ndarray, object]]:
+    """Group measurement times by containing element, with interpolation weights.
 
-    Returns ``ncp + 1`` matrices ``E_k`` of shape ``(n_meas, nfe)`` such that a
-    state's value at ``t_data[i]`` is ``sum_k (E_k @ var[:, k])[i]``, the
-    vectorized form of :meth:`DAEBuilder.state_at`, exact to the collocation
-    order within the containing element.
+    Returns ``(elem, meas_idx, W)`` triples: the measurement indices that fall
+    in element ``elem`` and a Lagrange-basis weight matrix ``W`` (a
+    ``(ncp+1, n_meas_in_elem)`` Constant) such that a state's values at those
+    times are ``var[elem:elem+1, :] @ W`` — :meth:`DAEBuilder.state_at`, exact
+    to the collocation order, vectorized *within* one element.
+
+    Keeping the interpolation per-element matters structurally, not just for
+    graph size: one dense all-elements interpolation matrix makes every
+    residual couple every element's variables in the DAG sparsity walker, so
+    the objective Hessian pattern (and with it the NLP iteration cost) turns
+    dense — at PRBS scale (~100+ elements) the solve time explodes.
+    Per-element blocks keep the Hessian pattern banded.
     """
     tp = dae._element_points()  # (nfe, ncp+1)
-    nfe, ncols = tp.shape
-    Es = [np.zeros((len(t_data), nfe)) for _ in range(ncols)]
+    ncols = tp.shape[1]
+    by_elem: dict[int, list[int]] = {}
     for i, t in enumerate(t_data):
-        e = dae._locate_element(float(t))
-        for k in range(ncols):
-            Es[k][i, e] = float(lagrange_basis(tp[e], float(t), k))
-    return Es
+        by_elem.setdefault(dae._locate_element(float(t)), []).append(i)
+    blocks = []
+    for e in sorted(by_elem):
+        idx = np.asarray(by_elem[e], dtype=int)
+        W = np.empty((ncols, len(idx)))
+        for j, i in enumerate(idx):
+            for k in range(ncols):
+                W[k, j] = float(lagrange_basis(tp[e], float(t_data[i]), k))
+        blocks.append((e, idx, Constant(W)))
+    return blocks
 
 
-def _state_at_times(dae: DAEBuilder, name: str, Es: list[np.ndarray]):
-    """A ``(n_meas, 1)`` expression for state ``name`` at the interpolation times."""
+def _state_in_block(dae: DAEBuilder, name: str, elem: int, W):
+    """A ``(1, n_meas_in_elem)`` expression for state ``name`` at one block's times."""
     var = dae.get_state(name)
-    expr = None
-    for k, E in enumerate(Es):
-        term = MatMulExpression(Constant(E), var[:, k : k + 1])
-        expr = term if expr is None else expr + term
-    return expr
+    return MatMulExpression(var[elem : elem + 1, :], W)
 
 
 class _RunBlock:
     """Per-run build artifacts needed after the solve (grouped for clarity)."""
 
-    def __init__(self, run, label, dae, cs, name_a, name_s, response_expr,
+    def __init__(self, run, label, dae, cs, name_a, name_s, responses,
                  t, y, sigma, knots, value_at):
         self.run = run
         self.label = label
@@ -243,7 +258,7 @@ class _RunBlock:
         self.cs = cs
         self.name_a = name_a          # adsorbate -> state name (without cs prefix)
         self.name_s = name_s          # site -> algebraic name (without cs prefix)
-        self.response_expr = response_expr
+        self.responses = responses    # [(meas_idx, (1, n) response expression)]
         self.t = t
         self.y = y
         self.sigma = sigma
@@ -318,32 +333,37 @@ def _build_run(m, mkm, run, i: int, nfe: int, ncp: int, scheme: str) -> _RunBloc
     dae.set_algebraic(alg)
     dae.discretize()
 
-    # response at the exact measurement times (collocation-polynomial interpolation)
-    Es = _interp_matrices(dae, t)
-    theta_meas = {a: _state_at_times(dae, name_a[a], Es) for a in mkm.adsorbates}
-    # free-site coverage from the site balance (algebraics exist only at
-    # collocation points, so they are reconstructed rather than interpolated)
-    free_meas = {}
-    for s in mkm.sites:
-        occ = [theta_meas[a] for a in mkm.adsorbates_on(s)]
-        free_meas[s] = 1.0 - dm.sum(occ) if occ else 1.0
-    if isinstance(run.response, Adsorbate):
-        response = theta_meas[run.response]
-    elif isinstance(run.response, Site):
-        response = free_meas[run.response]
-    else:
+    # response at the exact measurement times: one collocation-polynomial
+    # interpolation block per element that contains measurements (see
+    # _interp_blocks for why this is per-element rather than one big matrix)
+    if not isinstance(run.response, (Adsorbate, Site)):
         if all(run.response not in rxn.net_stoich() for rxn in mkm.reactions):
             raise ValueError(
                 f"run {label!r}: response species {run.response.name!r} is not net-produced or "
                 "-consumed by any reaction, so its rate is identically zero")
-        conc_meas = {g: Constant(np.asarray(value_at[g](t), dtype=float).reshape(-1, 1))
-                     for g in mkm.gas_species}
-        response = net_rate(run.response, mkm.reactions, conc_meas, theta_meas, free_meas,
+    responses = []
+    for elem, idx, W in _interp_blocks(dae, t):
+        theta_b = {a: _state_in_block(dae, name_a[a], elem, W) for a in mkm.adsorbates}
+        # free-site coverage from the site balance (algebraics exist only at
+        # collocation points, so they are reconstructed rather than interpolated)
+        free_b = {}
+        for s in mkm.sites:
+            occ = [theta_b[a] for a in mkm.adsorbates_on(s)]
+            free_b[s] = 1.0 - dm.sum(occ) if occ else 1.0
+        if isinstance(run.response, Adsorbate):
+            resp = theta_b[run.response]
+        elif isinstance(run.response, Site):
+            resp = free_b[run.response]
+        else:
+            conc_b = {g: Constant(np.asarray(value_at[g](t[idx]), dtype=float).reshape(1, -1))
+                      for g in mkm.gas_species}
+            resp = net_rate(run.response, mkm.reactions, conc_b, theta_b, free_b,
                             T_i, mkm.R, mkm.Tref)
+        responses.append((idx, resp))
 
     sw = np.unique(np.asarray(switches, dtype=float))
     knots = np.concatenate([[t0], sw[(sw > t0) & (sw < tf)], [tf]])
-    return _RunBlock(run, label, dae, cs, name_a, name_s, response, t, y, sigma, knots, value_at)
+    return _RunBlock(run, label, dae, cs, name_a, name_s, responses, t, y, sigma, knots, value_at)
 
 
 def _warm_start_fills(mkm, blocks: list[_RunBlock], fit: list[FitParam], warm_start: bool) -> dict:
@@ -473,9 +493,10 @@ def fit_kinetics_transient(
     # weighted least-squares objective over every measurement of every run
     obj_terms = []
     for blk in blocks:
-        resid = (Constant(blk.y.reshape(-1, 1)) - blk.run.scale * blk.response_expr) \
-            * Constant((1.0 / blk.sigma).reshape(-1, 1))
-        obj_terms.append(dm.sum(resid ** 2))
+        for idx, resp in blk.responses:
+            resid = (Constant(blk.y[idx].reshape(1, -1)) - blk.run.scale * resp) \
+                * Constant((1.0 / blk.sigma[idx]).reshape(1, -1))
+            obj_terms.append(dm.sum(resid ** 2))
     m.minimize(dm.sum(obj_terms))
 
     # warm start: nominal constants + numerically integrated trajectories. The
@@ -526,21 +547,35 @@ def fit_kinetics_transient(
 def _covariance_and_raw_result(m, blocks: list[_RunBlock], unknown: dict, result) -> EstimationResult:
     """FIM-based covariance at the solution, packaged as a raw ``EstimationResult``.
 
-    Mirrors ``discopt.estimate._compute_estimation_fim``: the response Jacobian
-    is the explicit partial derivative w.r.t. the fitted variables (holding the
-    trajectory variables at the solution), weighted by the per-point measurement
-    error: ``FIM = J^T diag(1/sigma^2) J``. Computed with forward-mode JAX over
-    the (few) fitted-variable columns of the compiled response expressions.
+    The response Jacobian ``J = dr/du`` includes the **implicit** dependence of
+    the trajectory on the fitted constants ``u``, not just the explicit partial
+    derivative: a transient response is mostly (for a measured coverage:
+    entirely) sensitive to a rate constant *through the coverage trajectory*.
+    With the bound-fixed initial conditions excluded, the collocation system
+    ``g(x, u) = 0`` is square in the free trajectory variables ``x``, so the
+    implicit function theorem gives ``dx/du = -(dg/dx)^{-1} dg/du`` (one sparse
+    LU factorization) and
+
+        ``dr/du = ∂r/∂u + (∂r/∂x) (dx/du)``.
+
+    Then ``FIM = J^T diag(1/sigma^2) J`` with the per-point measurement errors,
+    exactly the Gauss-Newton information of the reduced (simulation-mode)
+    least-squares problem.
     """
     import jax
     import jax.numpy as jnp
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
 
     from discopt._jax.differentiable import _compile_parametric_node
+    from discopt._jax.nlp_evaluator import NLPEvaluator
 
     x_parts = [np.asarray(result.x[v.name], dtype=float).reshape(-1) for v in m._variables]
-    x_flat = jnp.asarray(np.concatenate(x_parts))
+    x_np = np.concatenate(x_parts)
+    x_flat = jnp.asarray(x_np)
     p_parts = [np.asarray(p.value, dtype=float).ravel() for p in m._parameters]
     p_flat = jnp.asarray(np.concatenate(p_parts)) if p_parts else jnp.zeros(0)
+    n = len(x_np)
 
     # flat-vector indices of the fitted variables, in parameter_names order
     param_indices = []
@@ -551,33 +586,76 @@ def _covariance_and_raw_result(m, blocks: list[_RunBlock], unknown: dict, result
                 param_indices.extend(range(off, off + v.size))
                 break
             off += v.size
-    idx = jnp.asarray(param_indices)
+    n_u = len(param_indices)
 
-    response_fns = [_compile_parametric_node(blk.response_expr, m) for blk in blocks]
-    scales = [float(blk.run.scale) for blk in blocks]
+    # free trajectory variables: everything that is neither fitted nor fixed by
+    # equal bounds (the imposed initial conditions)
+    lb = np.concatenate([np.broadcast_to(np.asarray(v.lb, float), v.shape).reshape(-1)
+                         for v in m._variables])
+    ub = np.concatenate([np.broadcast_to(np.asarray(v.ub, float), v.shape).reshape(-1)
+                         for v in m._variables])
+    is_u = np.zeros(n, dtype=bool)
+    is_u[param_indices] = True
+    free_idx = np.where(~is_u & (lb != ub))[0]
 
-    def stacked_responses(u):
-        xf = x_flat.at[idx].set(u)
-        return jnp.concatenate([s * jnp.ravel(fn(xf, p_flat))
-                                for s, fn in zip(scales, response_fns)])
+    # trajectory sensitivity dx/du from the constraint Jacobian at the solution
+    evaluator = NLPEvaluator(m)
+    S = None
+    if evaluator.n_constraints == len(free_idx):
+        try:
+            if evaluator.has_sparse_structure():
+                rows, cols = evaluator.jacobian_structure()
+                vals = evaluator.evaluate_jacobian_values(x_np)
+                G = sp.csr_matrix((vals, (rows, cols)), shape=(evaluator.n_constraints, n))
+            else:
+                G = sp.csr_matrix(np.asarray(evaluator.evaluate_jacobian(x_np)))
+            S = -spla.splu(G[:, free_idx].tocsc()).solve(np.asarray(G[:, param_indices].todense()))
+        except Exception as exc:
+            warnings.warn(
+                f"implicit trajectory sensitivity failed ({exc}); the reported covariance "
+                "uses the explicit response Jacobian only and underestimates the true "
+                "sensitivity. The point estimates are unaffected.",
+                stacklevel=3,
+            )
+    else:
+        warnings.warn(
+            "constraint system is not square in the free trajectory variables "
+            f"({evaluator.n_constraints} constraints, {len(free_idx)} free variables); the "
+            "reported covariance uses the explicit response Jacobian only and "
+            "underestimates the true sensitivity. The point estimates are unaffected.",
+            stacklevel=3,
+        )
 
-    u_star = x_flat[idx]
-    y_pred = np.asarray(stacked_responses(u_star))            # scale applied
-    J = np.asarray(jax.jacfwd(stacked_responses)(u_star)).reshape(len(y_pred), len(param_indices))
+    # per-element response blocks, compiled once; stitched back into
+    # measurement order via each block's measurement-index array
+    compiled = []   # (global offset, meas idx within run, scale, fn)
+    off = 0
+    for blk in blocks:
+        for meas_idx, resp in blk.responses:
+            compiled.append((off, meas_idx, float(blk.run.scale),
+                             _compile_parametric_node(resp, m)))
+        off += len(blk.t)
+    n_total = off
+
+    y_pred = np.zeros(n_total)
+    J = np.zeros((n_total, n_u))
+    for run_off, meas_idx, s, fn in compiled:
+        y_pred[run_off + meas_idx] = s * np.asarray(fn(x_flat, p_flat)).ravel()
+        # dr/dx rows of this block, batched into a single reverse-mode call
+        dr_dx = np.asarray(jax.jacrev(lambda xx: jnp.ravel(fn(xx, p_flat)))(x_flat))
+        rows = dr_dx[:, param_indices]
+        if S is not None:
+            rows = rows + dr_dx[:, free_idx] @ S
+        J[run_off + meas_idx] = s * rows
 
     y_obs = np.concatenate([blk.y for blk in blocks])
     sigma = np.concatenate([blk.sigma for blk in blocks])
     weights = 1.0 / sigma**2
     fim = J.T @ (J * weights[:, None])
-    if np.linalg.matrix_rank(fim) < len(param_indices):
-        # The FIM convention uses the *explicit* response Jacobian (holding the
-        # trajectory variables fixed). A response that does not directly contain
-        # a fitted constant (e.g. a measured coverage, which is purely state
-        # variables) contributes zero explicit sensitivity, so the covariance
-        # degenerates. The point estimates are unaffected.
+    if np.linalg.matrix_rank(fim) < n_u:
         warnings.warn(
-            "Fisher information matrix is singular: at least one fitted constant has no "
-            "explicit sensitivity in the measured responses (typical for coverage-only "
+            "Fisher information matrix is singular: at least one fitted constant leaves "
+            "the measured responses unchanged to first order (not identifiable from this "
             "data). Reported standard errors / confidence intervals are not reliable; "
             "the point estimates are unaffected.",
             stacklevel=3,
