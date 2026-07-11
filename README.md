@@ -581,4 +581,11 @@ uv run pytest tests/
 
 # Potential future work
 
-It probably would be straightforward to develop an electrochemical version of this package. Please reach out if it is something you would be interested in collaborating on.
+A basic electrochemistry addon now ships in the `discopt.mkm.electrochem`
+subpackage — potential-dependent (computational-hydrogen-electrode / Butler-Volmer)
+kinetics, current density and Tafel analysis, activity-volcano optimization, and
+mass transport via a rotating-disk-electrode reactor (see the [Electrochemistry](#electrochemistry)
+section and notebooks 16–18). It is deliberately basic, so there is plenty of room
+to extend it — richer double-layer/pH models, additional electrode geometries, and
+more transport regimes. Please reach out if extending it, or any other direction,
+is something you would be interested in collaborating on.
