@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import discopt.modeling as dm
-from discopt._jax.differentiable import differentiable_solve_l3
+from discopt._relax.differentiable import differentiable_solve_l3
 
 from discopt.mkm.assemble import quasi_equilibrium, site_balance_residual
 from discopt.mkm.kinetics import net_rate, rate_of_progress

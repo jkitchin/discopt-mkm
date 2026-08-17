@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     # POUNCE (the default NLP backend, no cyipopt needed) ships in discopt >=0.5.
-    "discopt>=0.5",
+    # >=0.8 is required: it renamed the internal AD package (discopt._jax ->
+    # discopt._relax) and added the public discopt.parametric API this plugin
+    # now compiles expressions through.
+    "discopt>=0.8",
     "jax>=0.4",
     "matplotlib>=3.10.9",
     "networkx>=3.4.2",

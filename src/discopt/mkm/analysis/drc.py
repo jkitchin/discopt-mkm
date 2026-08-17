@@ -71,7 +71,11 @@ def degree_of_rate_control(solution, rate_expr=None, species=None) -> dict:
             continue
         # use the handle snapshotted on this solution (stable if the model was
         # re-solved since), not the live one on the shared reaction object
-        handle = (solution.rate_constant_params or {}).get(rxn) or rxn.rate_constant_param()
+        # ``is None`` rather than ``or``: a discopt Expression is not safely
+        # truthy (scalar Parameters raise TypeError from __len__ since 0.8).
+        handle = (solution.rate_constant_params or {}).get(rxn)
+        if handle is None:
+            handle = rxn.rate_constant_param()
         start, _ = param_slice(handle, model)
         k = rxn.rate_constant_value()
         out[rxn] = (k / r_star) * float(dr_dp[start])
