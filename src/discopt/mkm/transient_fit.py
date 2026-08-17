@@ -567,8 +567,8 @@ def _covariance_and_raw_result(m, blocks: list[_RunBlock], unknown: dict, result
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
 
-    from discopt._jax.differentiable import _compile_parametric_node
-    from discopt._jax.nlp_evaluator import NLPEvaluator
+    from discopt._relax.nlp_evaluator import NLPEvaluator
+    from discopt.parametric import compile_expression
 
     x_parts = [np.asarray(result.x[v.name], dtype=float).reshape(-1) for v in m._variables]
     x_np = np.concatenate(x_parts)
@@ -633,7 +633,7 @@ def _covariance_and_raw_result(m, blocks: list[_RunBlock], unknown: dict, result
     for blk in blocks:
         for meas_idx, resp in blk.responses:
             compiled.append((off, meas_idx, float(blk.run.scale),
-                             _compile_parametric_node(resp, m)))
+                             compile_expression(resp, m)))
         off += len(blk.t)
     n_total = off
 

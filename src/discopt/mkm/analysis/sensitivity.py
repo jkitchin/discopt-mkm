@@ -1,8 +1,10 @@
-"""Adapter isolating the (underscore-prefixed) discopt AD internals.
+"""Adapter isolating discopt's AD entry points.
 
-Everything in this module touches private discopt symbols. Keeping it in one
-place means a discopt version bump only needs fixing here. Pin the discopt
-version this was written against.
+Expression compilation goes through :mod:`discopt.parametric`, the public
+plugin-facing API added in discopt 0.8. The flat parameter layout still has no
+public accessor, so ``param_slice`` wraps a private symbol; keeping that in one
+place means a discopt version bump only needs fixing here. Written against
+discopt 0.8 (which renamed ``discopt._jax`` to ``discopt._relax``).
 """
 
 from __future__ import annotations
@@ -10,12 +12,13 @@ from __future__ import annotations
 import jax
 import numpy as np
 
-from discopt._jax.differentiable import _compile_parametric_node, _get_param_slice
+from discopt._relax.differentiable import _get_param_slice
+from discopt.parametric import compile_expression
 
 
 def evaluate_expression(expr, result, model) -> float:
     """Evaluate a discopt expression at the solved point ``(x*, p)``."""
-    fn = _compile_parametric_node(expr, model)
+    fn = compile_expression(expr, model)
     return float(fn(result._x_star, result._p_flat))
 
 
@@ -37,7 +40,7 @@ def total_derivative(expr, result, model):
         return None
     dx_dp = np.asarray(dx_dp)  # (n_vars, n_params)
 
-    fn = _compile_parametric_node(expr, model)
+    fn = compile_expression(expr, model)
     x_star, p_flat = result._x_star, result._p_flat
     dr_dx = np.asarray(jax.grad(fn, argnums=0)(x_star, p_flat))  # (n_vars,)
     dr_dp_direct = np.asarray(jax.grad(fn, argnums=1)(x_star, p_flat))  # (n_params,)

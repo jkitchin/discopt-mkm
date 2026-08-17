@@ -532,7 +532,7 @@ Full, DOI-verified BibTeX entries are in [`references.bib`](references.bib).
 
 The project is managed with [uv](https://docs.astral.sh/uv/). `discopt-mkm` is a
 `discopt` namespace plugin: it installs under the `discopt` package (as
-`discopt.mkm`) and depends on `discopt>=0.5`, which is published to PyPI with
+`discopt.mkm`) and depends on `discopt>=0.8`, which is published to PyPI with
 prebuilt wheels — no Rust toolchain needed for a plain install:
 
 ```bash

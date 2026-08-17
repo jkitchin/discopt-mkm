@@ -96,8 +96,8 @@ def _solve_feasibility(
     sensitivity (discopt#324). We only need the primal solution, so we call the
     evaluator/NLP dispatch directly.
     """
-    from discopt._jax.differentiable import _dispatch_nlp_solve, _safe_x0
-    from discopt._jax.nlp_evaluator import NLPEvaluator
+    from discopt._relax.differentiable import _dispatch_nlp_solve, _safe_x0
+    from discopt._relax.nlp_evaluator import NLPEvaluator
     from discopt.solvers import SolveStatus
 
     m.validate()
