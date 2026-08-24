@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=64"]
+# >=77 for PEP 639 (SPDX ``license`` / ``license-files``).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +9,9 @@ version = "0.1.0"
 description = "Microkinetic modeling plugin for the discopt modeling language"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "John Kitchin", email = "jkitchin@andrew.cmu.edu" }]
 dependencies = [
     # POUNCE (the default NLP backend, no cyipopt needed) ships in discopt >=0.5.
     # >=0.8 is required: it renamed the internal AD package (discopt._jax ->

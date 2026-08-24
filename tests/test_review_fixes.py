@@ -1,5 +1,6 @@
-"""Regression tests for the high-severity correctness fixes (REVIEW.md H1-H7,
-M5, M6). Each test fails on the pre-fix code and passes after.
+"""Regression tests for the high-severity correctness fixes found in the
+module review (H1-H7, M5, M6). Each test fails on the pre-fix code and passes
+after.
 """
 
 import warnings
@@ -455,7 +456,7 @@ def test_nonisothermal_solve_temperature_is_physical():
 
 
 # ==========================================================================
-# Completeness-gap fixes (REVIEW.md C1-C12; C5 is a documented limitation).
+# Completeness-gap fixes (C1-C12; C5 is a documented limitation).
 # ==========================================================================
 
 _HER_SPEC = {

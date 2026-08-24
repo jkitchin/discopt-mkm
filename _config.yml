@@ -4,7 +4,7 @@
 #
 # The book root is the repository root so the TOC can reference the example
 # notebooks in examples/ and share references.bib. `only_build_toc_files: true`
-# keeps README/REVIEW/AGENTS and other stray markdown out of the build.
+# keeps README/AGENTS and other stray markdown out of the build.
 title: discopt-mkm
 author: John Kitchin
 logo: images/logo-512.png
