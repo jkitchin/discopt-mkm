@@ -7,6 +7,7 @@
 # discopt-mkm
 
 [![tests](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml/badge.svg)](https://github.com/jkitchin/discopt-mkm/actions/workflows/tests.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23539982.svg)](https://doi.org/10.5281/zenodo.23539982)
 
 A microkinetic modeling (MKM) plugin for the
 [discopt](https://pypi.org/project/discopt/) modeling language. Declare
