@@ -18,7 +18,7 @@ Use `from discopt.mkm import agent` (each function takes a spec dict, returns
 JSON-able data) or the MCP tools of the same names. Do **not** hand-write the
 operator DSL (`m.step(CO + s >> COs)`); always pass a spec.
 
-Requires the `discopt-mkm` package (Python >= 3.12; pulls in `discopt[jax]>=0.10`
+Requires the `discopt-mkm` package (Python >= 3.12; pulls in `discopt[jax]>=0.11`
 and `pounce-solver>=0.14`). If `import discopt.mkm` fails, install it with
 `pip install git+https://github.com/jkitchin/discopt-mkm` (or
 `pip install "discopt-mkm[mcp] @ git+https://github.com/jkitchin/discopt-mkm"` for

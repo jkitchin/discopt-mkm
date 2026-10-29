@@ -533,9 +533,9 @@ Full, DOI-verified BibTeX entries are in [`references.bib`](references.bib).
 
 The project is managed with [uv](https://docs.astral.sh/uv/). `discopt-mkm` is a
 `discopt` namespace plugin: it installs under the `discopt` package (as
-`discopt.mkm`) and depends on `discopt[jax]>=0.10` and `pounce-solver>=0.14`, both
+`discopt.mkm`) and depends on `discopt[jax]>=0.11` and `pounce-solver>=0.14`, both
 published to PyPI with prebuilt wheels — no Rust toolchain needed for a plain
-install. Python >= 3.12 is required (discopt 0.10 ships `cp312-abi3` wheels):
+install. Python >= 3.12 is required (discopt ships `cp312-abi3` wheels):
 
 ```bash
 uv sync                  # create .venv, install discopt (from PyPI) + everything
