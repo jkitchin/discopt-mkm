@@ -3,6 +3,10 @@
 Console script ``discopt-mkm-install-skill``: copies the packaged ``SKILL.md`` into
 a Claude skills directory so the skill is auto-discovered, and optionally runs
 ``claude mcp add`` to register the MCP server.
+
+The packaged skill is ``skill/discopt-mkm.md`` rather than ``skill/SKILL.md`` so
+that the repository holds exactly one ``SKILL.md`` (``skills/discopt-mkm/``, a
+symlink to it) for ``knowhow`` / ``npx skills`` to discover.
 """
 
 from __future__ import annotations
@@ -18,7 +22,8 @@ MCP_ADD = ["claude", "mcp", "add", SKILL_NAME, "--", "discopt-mkm-mcp"]
 
 def _bundled_skill() -> str:
     """Read the packaged SKILL.md text."""
-    return resources.files("discopt.mkm").joinpath("skill", "SKILL.md").read_text()
+    skill = resources.files("discopt.mkm").joinpath("skill", f"{SKILL_NAME}.md")
+    return skill.read_text(encoding="utf-8")
 
 
 def install_skill(skills_dir: Path, force: bool = False) -> Path:
@@ -28,7 +33,7 @@ def install_skill(skills_dir: Path, force: bool = False) -> Path:
     if dest.exists() and not force:
         print(f"skill already installed: {dest}\n  (use --force to overwrite)")
         return dest
-    dest.write_text(_bundled_skill())
+    dest.write_text(_bundled_skill(), encoding="utf-8")
     print(f"installed skill -> {dest}")
     return dest
 

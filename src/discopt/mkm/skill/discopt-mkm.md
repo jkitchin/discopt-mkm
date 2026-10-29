@@ -8,6 +8,7 @@ description: >-
   user describes a catalytic reaction mechanism, surface kinetics, adsorbates and
   sites, coverages, rate-determining or rate-controlling steps, or asks to solve
   or analyze a microkinetic model.
+license: MIT
 ---
 
 # discopt-mkm
@@ -16,6 +17,12 @@ Describe a catalytic mechanism as **data** (a spec) and get **structured** resul
 Use `from discopt.mkm import agent` (each function takes a spec dict, returns
 JSON-able data) or the MCP tools of the same names. Do **not** hand-write the
 operator DSL (`m.step(CO + s >> COs)`); always pass a spec.
+
+Requires the `discopt-mkm` package (Python >= 3.12; pulls in `discopt[jax]>=0.10`
+and `pounce-solver>=0.14`). If `import discopt.mkm` fails, install it with
+`pip install git+https://github.com/jkitchin/discopt-mkm` (or
+`pip install "discopt-mkm[mcp] @ git+https://github.com/jkitchin/discopt-mkm"` for
+the MCP server, `discopt-mkm-mcp`).
 
 ## Spec
 
@@ -40,13 +47,19 @@ Equations: `<=>` reversible, `->` irreversible; terms are `coeff species`
 Per-reaction kinetics (choose one): `A`+`Ea` (Arrhenius, reverse from species
 thermo) · `kf`+`Keq` (explicit constants) · `equilibrated: true` (quasi-
 equilibrium for fast steps; give `Keq` or rely on thermo). Add `irreversible:
-true` to force `kr=0`, `alpha: <0..1>` for a BEP coverage-dependent barrier.
+true` to force `kr=0`, `alpha: <0..1>` for a BEP coverage-dependent barrier
+(only active when lateral `interactions` are registered; otherwise inert, with a
+build warning). Electrochemical step: `n_electrons: <int>` (consumed forward;
+reduction positive) and `beta: <0..1>`; set model-level `U` (volts) and `F` (1.0
+for eV/V, 96485 for J/mol).
 
 Optional: `interactions: [{a: "CO*", b: "O*", eps: 0.1}]`, per-species
 `composition: {C: 1, O: 1}` (else inferred from the name), per-species `thermo:
 {type: nasa7, low: [...], high: [...]}` or `{type: shomate, coeffs: [A..H]}`.
 Reactor types: `differential` (fixed `pressures`), `cstr` (`inlet`, `tau`,
-`cat_density`), `batch`.
+`cat_density`), `batch` (`initial`). Reactor fields are type-specific: mixing them
+(e.g. a `cstr` with `pressures`) is an error. Specs are strict — an unknown key
+anywhere (a typo like `reactons:`) is a validation error, not silently dropped.
 
 ## Tools / functions (spec in, JSON out)
 
@@ -59,18 +72,26 @@ Reactor types: `differential` (fixed `pressures`), `cstr` (`inlet`, `tau`,
 - `analyze(spec, target)` → all of the above in one call. **Prefer this.**
 - `report(spec, target, path=...)` → self-contained HTML report.
 
+Electrochemistry (faradaic steps; needs model-level `U`, `F`):
+- `current(spec)` → `{U, current, status}`, `j = F*sum(n_j*r_j)` per site.
+- `tafel_slope(spec)` → `{U, tafel_slope, transfer_coefficient, status}`; use in the
+  Tafel region (raises near the equilibrium potential).
+- `che_diagram(spec, U=None)` → CHE free-energy diagram (no solve).
+- `limiting_potential(spec)` → `{limiting_potential}` (reduction mechanisms only).
+
 `target` is a gas-product species name; defaults to a net-produced gas species.
 
 ## Decision guide
 
 - Reactor: fixed-condition rate/DRC → `differential`; conversion with flow →
-  `cstr`; time evolution → `batch` (use `solve_transient`, not these tools).
+  `cstr`; time evolution → `batch` (use `solve_transient`, not these tools; a steady-state
+  solve on a `batch` reactor raises).
 - `coordinates`: default `"linear"`; use `"log"` for stiff near-equilibrium
   mechanisms (e.g. water-gas shift) — `solve`/`analyze` auto-warm-start it.
 - Fast steps you want to assume equilibrated → `equilibrated: true` (removes
   stiffness; reports degree of rate control = 0 for those steps by construction).
 - If `degree_of_rate_control` returns `drc: null`, a coverage is pinned near 0/1
-  — retry with `coordinates="log"`.
+  (often a tiny coverage below `active_tol`) — retry with `coordinates="log"`.
 
 ## Units (important)
 

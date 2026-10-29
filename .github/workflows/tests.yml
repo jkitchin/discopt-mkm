@@ -11,6 +11,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The skill is installable with knowhow / npx skills straight from this repo;
+  # check the layout and SKILL.md frontmatter against the Agent Skills spec.
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx knowhow validate .
+
   test:
     runs-on: ubuntu-latest
     # the microkinetic solves (POUNCE/JAX NLP) make the suite take ~8-9 min
@@ -22,7 +31,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          python-version: "3.11"
+          python-version: "3.12"  # discopt>=0.10 requires >=3.12
 
       - name: Install dependencies
         # --frozen: install exactly the locked versions (uv.lock); the dev group

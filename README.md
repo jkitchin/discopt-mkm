@@ -533,8 +533,9 @@ Full, DOI-verified BibTeX entries are in [`references.bib`](references.bib).
 
 The project is managed with [uv](https://docs.astral.sh/uv/). `discopt-mkm` is a
 `discopt` namespace plugin: it installs under the `discopt` package (as
-`discopt.mkm`) and depends on `discopt>=0.8`, which is published to PyPI with
-prebuilt wheels — no Rust toolchain needed for a plain install:
+`discopt.mkm`) and depends on `discopt[jax]>=0.10` and `pounce-solver>=0.14`, both
+published to PyPI with prebuilt wheels — no Rust toolchain needed for a plain
+install. Python >= 3.12 is required (discopt 0.10 ships `cp312-abi3` wheels):
 
 ```bash
 uv sync                  # create .venv, install discopt (from PyPI) + everything
@@ -542,9 +543,10 @@ uv sync --extra mcp      # ...also install the MCP server dependency
 uv run pytest            # run the test suite
 ```
 
-PyPI ships discopt wheels for CPython 3.10–3.13 on Linux and CPython 3.12 on
-macOS, so use a 3.12 interpreter on macOS (`uv sync --python 3.12`) to avoid
-building the Rust extension from source. To develop against a local `discopt`
+The discopt wheels are `abi3`, so one wheel covers CPython 3.12 and later on
+Linux, macOS and Windows. The `jax` extra matters: since 0.10 JAX is optional in
+discopt, but `discopt.estimate`, `discopt.parametric` and the differentiable layers
+this plugin uses need it. To develop against a local `discopt`
 checkout instead, add a `[tool.uv.sources]` override pointing `discopt` at your
 editable clone of `github.com/jkitchin/discopt`.
 
@@ -571,8 +573,26 @@ claude mcp add discopt-mkm -- discopt-mkm-mcp
 
 The skill teaches an agent the spec format and tool workflow (see
 [`AGENTS.md`](AGENTS.md)); the MCP server exposes `validate`, `solve`, `analyze`,
-`degree_of_rate_control`, `apparent_kinetics`, `structure`, `report`, and
-`spec_schema` as callable tools.
+`degree_of_rate_control`, `apparent_kinetics`, `structure`, `report`,
+`spec_schema`, and the electrochemistry tools `current`, `tafel_slope`,
+`che_diagram` and `limiting_potential` as callable tools.
+
+The skill also follows the [Agent Skills](https://agentskills.io/specification)
+repository layout (`skills/discopt-mkm/SKILL.md`, a symlink to the packaged
+`src/discopt/mkm/skill/discopt-mkm.md`), so it can be installed straight from GitHub
+with [knowhow](https://github.com/jkitchin/knowhow) for Claude Code, VS Code
+(Copilot), Codex, OpenCode, Gemini CLI, Cursor and other agents, without installing
+this package first. The skill still needs `discopt-mkm` installed to run.
+
+```bash
+uvx knowhow add jkitchin/discopt-mkm --list                # what's available
+uvx knowhow add jkitchin/discopt-mkm --skill discopt-mkm   # into this project
+uvx knowhow add jkitchin/discopt-mkm -s discopt-mkm -g     # for all projects
+# or: npx skills add jkitchin/discopt-mkm --skill discopt-mkm
+```
+
+knowhow records installs in lock files, so `uvx knowhow check` / `upgrade` pick up
+new versions of the skill.
 
 ## Tests
 

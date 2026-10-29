@@ -56,6 +56,25 @@ def test_drc_sums_to_one_and_identifies_rds(solved):
     assert X[surface] == pytest.approx(1.0, abs=1e-2)
 
 
+
+def test_equality_rows_active_regardless_of_active_tol(solved):
+    """active_tol is a bound tolerance: it must not drop steady-state rows from L3.
+
+    discopt's active-set check also gates equalities on it, and since discopt 0.10 /
+    pounce 0.14 the residuals can sit at ~1e-11, so active_tol=1e-13 lost rows (a
+    singular or, worse, wrong-but-finite KKT system). active_tol=0 is the extreme:
+    no residual is below it, so this fails unless every equality is kept.
+    """
+    m_ref, sol_ref = solved
+    X_ref = {r.name: x for r, x in
+             degree_of_rate_control(sol_ref, species=m_ref._by_name["CO2"]).items()}
+    m, reactor = co_oxidation(T=500.0)
+    sol = mk.solve_steady_state(m, reactor, active_tol=0.0)
+    assert sol.sensitivities_available
+    X = {r.name: x for r, x in degree_of_rate_control(sol, species=m._by_name["CO2"]).items()}
+    assert sum(X.values()) == pytest.approx(1.0, abs=1e-6)
+    assert X == pytest.approx(X_ref, abs=1e-6)
+
 @pytest.mark.slow
 def test_drc_matches_finite_difference(solved):
     m, sol = solved
