@@ -312,7 +312,7 @@ wheels = [
 
 [[package]]
 name = "discopt"
-version = "0.10.0"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "highspy" },
@@ -320,13 +320,13 @@ dependencies = [
     { name = "pounce-solver" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/23/ce7bf788b1721d5e1533e4f155028d145f05bdaf17f6d9039118701e050e/discopt-0.10.0.tar.gz", hash = "sha256:b0a1422210361ec616a1b3ebfdd7d4f78ef5e0c839885af4d46040804adc679d", size = 4843285, upload-time = "2026-10-28T22:14:04.044Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/ea/e9ecac2d22a665e69a64a8b5cd508b7aaa0012ffe4b25a76f149a3c331d3/discopt-0.11.0.tar.gz", hash = "sha256:88161c897f58d2613bc2735a6d3c72733bbbfb14b6596b7acee2385b372584cc", size = 4848498, upload-time = "2026-10-29T17:13:51.623Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/c9/829e4c05c04f99290af5a23a647a0edc3920d85a9fc65ce49de412c1c36a/discopt-0.10.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:9223297945a3d2fb4207f50ef7dbc64fb6c0d6e024547ac15d257f51db511ac2", size = 6936711, upload-time = "2026-10-28T22:13:52.422Z" },
-    { url = "https://files.pythonhosted.org/packages/dd/1a/3f79f4c5410f95b5b2b2f33f50edf07e1beb78f1b88f5d28958415ad519d/discopt-0.10.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:ed78b3a4bcf1c56129cf4291dcca93a31e489e2c605d370f49c60ed767f8bdd5", size = 6802626, upload-time = "2026-10-28T22:13:55.224Z" },
-    { url = "https://files.pythonhosted.org/packages/25/ec/3548eb67689c2f5eece7b410881dffa5c2ec5da3e30b454beb355ce58145/discopt-0.10.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:40862f331d275629725654ffc059f3faff45866feae3d5917533db6d944c1bd7", size = 6936961, upload-time = "2026-10-28T22:13:57.14Z" },
-    { url = "https://files.pythonhosted.org/packages/0a/41/960fb754f606a940153255ef97ce04b96cd4bf002603b7fff88baca4ccb8/discopt-0.10.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fc5f7157bfd70b6c2626c7c8e690596d7e46ed795f2db297691a10f2fd1460ff", size = 7084039, upload-time = "2026-10-28T22:13:59.556Z" },
-    { url = "https://files.pythonhosted.org/packages/12/d9/c01260c292432264f12e4f404b15da833d9d70ff95ffb4a07e4aef01bbd7/discopt-0.10.0-cp312-abi3-win_amd64.whl", hash = "sha256:2050528b3581a885d86367497bd537c1db6e299a6fd611b4b10d44c1b4b9eca7", size = 6953850, upload-time = "2026-10-28T22:14:01.936Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/4d/d72baf1387ef720737cc89b1cff744368063d6ef43aee65a60c0ef0b9804/discopt-0.11.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:a31bc48e4b5ca4119a27c3d65c9bfca234af0622099bf552a8f98304384563f2", size = 6950784, upload-time = "2026-10-29T17:13:39.343Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/82/6b1ffbf0df84b1473646de1163e333f1ca0c064a26c8565a76fc0c688256/discopt-0.11.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:d31e33e332868946b514646ba67126a1580d5c022ef042b7cd406974625bcdfb", size = 6815052, upload-time = "2026-10-29T17:13:41.674Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/38/4b0853c57decc46319615674b44e6c8755dfe4d0ebce98b78a943ca6156b/discopt-0.11.0-cp312-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:f403a6d906458ea7743a1aeeff00337006e4cff2b9f94247c74a1a52d1c5203f", size = 6947146, upload-time = "2026-10-29T17:13:44.204Z" },
+    { url = "https://files.pythonhosted.org/packages/de/68/fac6a78e92f1a0a7aebf2d30184ae6783aae24dd3d50fc825d7fb390acc8/discopt-0.11.0-cp312-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:36fc2b94b2c42f9b9ea58bab25d656cdc6a6ebdeb5e6450ea5c654c91ca7ce44", size = 7092573, upload-time = "2026-10-29T17:13:46.939Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/86/6bd88a283ef91cc826db7eb8f9eaee3a0c5486990c813fd39771bade72a8/discopt-0.11.0-cp312-abi3-win_amd64.whl", hash = "sha256:3600dad5df865f5357556d7f3086711a83e6120e12344934c63e67c2da360e5a", size = 6964368, upload-time = "2026-10-29T17:13:49.035Z" },
 ]
 
 [package.optional-dependencies]
@@ -367,7 +367,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "discopt", extras = ["jax"], specifier = ">=0.10" },
+    { name = "discopt", extras = ["jax"], specifier = ">=0.11" },
     { name = "jax", specifier = ">=0.4" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0" },

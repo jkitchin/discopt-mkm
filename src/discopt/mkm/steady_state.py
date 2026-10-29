@@ -8,13 +8,12 @@ machinery also yields ``dx*/dp`` for degree of rate control.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 
 import numpy as np
 
-import discopt._relax.differentiable as _diff
 import discopt.modeling as dm
+from discopt._relax.differentiable import differentiable_solve_l3
 
 from discopt.mkm.assemble import quasi_equilibrium, site_balance_residual
 from discopt.mkm.kinetics import net_rate, rate_of_progress
@@ -22,44 +21,6 @@ from discopt.mkm.model import MicrokineticModel, _safe
 from discopt.mkm.reactors import Reactor
 
 from discopt.modeling.core import Expression  # type: ignore
-
-
-@contextmanager
-def _equalities_always_active():
-    """Count every ``==`` row as active in the L3 KKT system, whatever ``active_tol``.
-
-    discopt's ``find_active_set`` applies ``active_tol`` to equality residuals as well
-    as to bounds. The steady-state system is all equalities, and ``active_tol`` here
-    is a *bound*-activity tolerance (callers pass ~1e-13 so tiny coverages are not
-    read as pinned). Since discopt 0.10 / pounce 0.14 the solve can stop at
-    equality residuals ~1e-11, so such a tolerance silently dropped steady-state
-    rows from the KKT system: singular (sensitivities unavailable) or, worse, finite
-    but wrong DRC. An equality holds at any feasible point, so it is always active.
-    """
-    orig = _diff.find_active_set
-
-    def find_active_set(x_star, model, constraint_fns, p_flat, tol=1e-6):
-        active, bounds = orig(x_star, model, constraint_fns, p_flat, tol=tol)
-        cons = [c for c in model._constraints if isinstance(c, dm.Constraint)]
-        rows, row = set(active), 0
-        for c, cf in zip(cons, constraint_fns):
-            n = np.size(cf(x_star, p_flat))
-            if c.sense == "==":
-                rows.update(range(row, row + n))
-            row += n
-        return sorted(rows), bounds
-
-    _diff.find_active_set = find_active_set
-    try:
-        yield
-    finally:
-        _diff.find_active_set = orig
-
-
-def differentiable_solve_l3(m, **kwargs):
-    """``discopt``'s L3 solve with equality rows always in the active set."""
-    with _equalities_always_active():
-        return _diff.differentiable_solve_l3(m, **kwargs)
 
 
 def _scalar(v) -> float:
